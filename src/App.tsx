@@ -17,6 +17,7 @@ import { buyKey, itemKey, isChecked, toggleChecked } from "./lib/checks";
 import { loadSection, loadTab, saveSection, saveTab, type TabId } from "./lib/persist";
 import { useOnline } from "./hooks/useOnline";
 import { useSwipe } from "./hooks/useSwipe";
+import { LivePanel } from "./components/LivePanel";
 
 export default function App() {
   const [sectionId, setSectionId] = useState(loadSection);
@@ -31,6 +32,7 @@ export default function App() {
   const items = tab === "gear" ? plan.gear : plan.supplies;
   const isBuy = tab === "buy";
   const isTerrain = tab === "terrain";
+  const isLive = tab === "live";
   const showPlanList = tab === "supplies" || tab === "gear";
   const buyItems = useMemo(() => BUY_LIST.flatMap((g) => g.items), []);
   const buyDone = buyItems.filter((i) => checks >= 0 && isChecked(buyKey(i.id))).length;
@@ -64,10 +66,10 @@ export default function App() {
 
   const swipe = useSwipe({
     onLeft: () => {
-      if (!isBuy) go(sectionId + 1);
+      if (!isBuy && !isLive) go(sectionId + 1);
     },
     onRight: () => {
-      if (!isBuy) go(sectionId - 1);
+      if (!isBuy && !isLive) go(sectionId - 1);
     },
   });
 
@@ -80,7 +82,9 @@ export default function App() {
             <span>
               {isBuy
                 ? `購物清單 · 已買 ${buyDone} / ${buyItems.length}`
-                : `${START_CLOCK} 起步 · 36h · 已過 ${progressKm.toFixed(1)} / ${TOTAL_KM.toFixed(1)} km`}
+                : isLive
+                  ? "Live 練行 · 目標時間拆段 · 可中途起止"
+                  : `${START_CLOCK} 起步 · 36h · 已過 ${progressKm.toFixed(1)} / ${TOTAL_KM.toFixed(1)} km`}
             </span>
           </div>
           <div className="status">
@@ -91,7 +95,12 @@ export default function App() {
           </div>
         </header>
 
-        {!isBuy ? (
+        {isBuy ? (
+          <div className="mission">
+            <div className="label">賽前一次買齊</div>
+            <p>數量已按十段計劃加總。沿途士多熱食唔使預先買，勾完代表記住帶錢同預留停站。</p>
+          </div>
+        ) : (
           <section className="section-card">
             <div className="section-nav">
               <div className="section-title">
@@ -116,15 +125,12 @@ export default function App() {
               ))}
             </div>
           </section>
-        ) : (
-          <div className="mission">
-            <div className="label">賽前一次買齊</div>
-            <p>數量已按十段計劃加總。沿途士多熱食唔使預先買，勾完代表記住帶錢同預留停站。</p>
-          </div>
         )}
       </div>
 
       <main className="panel" {...swipe}>
+        {isLive ? <LivePanel sectionId={sectionId} onSectionChange={go} /> : null}
+
         {isBuy ? (
           <>
             {BUY_LIST.map((group) => (
@@ -334,10 +340,13 @@ export default function App() {
           ‹
         </button>
         <button className={`tab ${tab === "supplies" ? "active" : ""}`} onClick={() => selectTab("supplies")}>
-          補給品
+          補給
         </button>
         <button className={`tab ${tab === "terrain" ? "active" : ""}`} onClick={() => selectTab("terrain")}>
-          地形密碼
+          地形
+        </button>
+        <button className={`tab ${tab === "live" ? "active" : ""}`} onClick={() => selectTab("live")}>
+          Live
         </button>
         <button className={`tab ${tab === "gear" ? "active" : ""}`} onClick={() => selectTab("gear")}>
           裝備

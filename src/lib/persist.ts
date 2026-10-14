@@ -1,7 +1,7 @@
 const SECTION_KEY = "tw-section-v1";
 const TAB_KEY = "tw-tab-v1";
 
-export type TabId = "supplies" | "terrain" | "gear" | "buy";
+export type TabId = "supplies" | "terrain" | "live" | "gear" | "buy";
 
 export function loadSection(): number {
   const n = Number(localStorage.getItem(SECTION_KEY));
@@ -15,7 +15,7 @@ export function saveSection(id: number) {
 
 export function loadTab(): TabId {
   const t = localStorage.getItem(TAB_KEY);
-  if (t === "terrain" || t === "gear" || t === "buy") return t;
+  if (t === "terrain" || t === "live" || t === "gear" || t === "buy") return t;
   return "supplies";
 }
 

@@ -624,8 +624,8 @@ button {
   right: 12px;
   bottom: calc(10px + env(safe-area-inset-bottom));
   display: grid;
-  grid-template-columns: 44px 1fr 1fr 1fr 1fr 44px;
-  gap: 4px;
+  grid-template-columns: 40px 1fr 1fr 1fr 1fr 1fr 40px;
+  gap: 3px;
   padding: 6px;
   border-radius: 18px;
   background: rgba(19, 32, 26, 0.92);
@@ -635,13 +635,13 @@ button {
 }
 
 .tabs .tab-nav {
-  width: 44px;
+  width: 40px;
   height: 48px;
   min-height: 48px;
   border-radius: 14px;
   background: var(--bg-chip);
   border: 1px solid var(--line);
-  font-size: 1.35rem;
+  font-size: 1.25rem;
 }
 
 .tab {
@@ -649,7 +649,7 @@ button {
   border-radius: 14px;
   color: var(--muted);
   font-weight: 700;
-  font-size: 0.72rem;
+  font-size: 0.68rem;
 }
 
 .tab.active {
@@ -730,4 +730,268 @@ button {
   margin: -4px 4px 8px;
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+/* —— Live mode —— */
+.live {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.live-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: linear-gradient(120deg, #1a2f24, #13201a);
+  border: 1px solid var(--line);
+}
+
+.live-kicker {
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  color: var(--sand);
+  font-weight: 700;
+}
+
+.live-status {
+  margin-top: 4px;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.live-pill {
+  flex-shrink: 0;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: var(--bg-chip);
+  border: 1px solid var(--line);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--sand);
+}
+
+.live-pill.running {
+  color: var(--moss-bright);
+  border-color: #2f5e42;
+}
+
+.live-pill.paused {
+  color: var(--blaze);
+}
+
+.live-setup,
+.live-here,
+.live-etas,
+.live-gps {
+  padding: 12px 14px;
+}
+
+.live-field {
+  margin-top: 10px;
+}
+
+.live-field:first-child {
+  margin-top: 0;
+}
+
+.live-field label,
+.live-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.live-target-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.live-target-row input,
+.live-range select {
+  min-height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg-chip);
+  color: var(--mist);
+  padding: 0 12px;
+  font: inherit;
+  font-weight: 700;
+}
+
+.live-target-row input {
+  width: 96px;
+}
+
+.live-range {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.live-help {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.live-help.danger {
+  color: var(--blaze);
+}
+
+.live-preview {
+  margin-top: 12px;
+}
+
+.live-preview ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.live-preview li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.88rem;
+}
+
+.live-preview li:last-child {
+  border-bottom: 0;
+}
+
+.live-primary,
+.live-secondary,
+.live-danger {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 10px;
+  border-radius: 14px;
+  font-weight: 700;
+}
+
+.live-primary {
+  background: linear-gradient(90deg, #3d7a55, #2f5e42);
+}
+
+.live-secondary {
+  background: var(--bg-chip);
+  border: 1px solid var(--line);
+}
+
+.live-danger {
+  background: transparent;
+  border: 1px solid #5a3228;
+  color: var(--blaze);
+}
+
+.live-route {
+  margin: 4px 0 10px;
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.live-terrain {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.live-terrain .k {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  margin-bottom: 2px;
+}
+
+.live-terrain strong {
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.live-field input[type="range"] {
+  width: 100%;
+  accent-color: var(--moss);
+}
+
+.live-eta-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.live-eta-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.live-eta-list li:last-child {
+  border-bottom: 0;
+}
+
+.live-eta-list li.current {
+  color: var(--moss-bright);
+}
+
+.live-eta-name {
+  font-weight: 700;
+  font-size: 0.88rem;
+}
+
+.live-eta-times {
+  display: flex;
+  gap: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.live-eta-times span:first-child {
+  color: var(--muted);
+}
+
+.live-gps-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.live-toggle {
+  min-width: 52px;
+  min-height: 36px;
+  border-radius: 999px;
+  background: var(--bg-chip);
+  border: 1px solid var(--line);
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.live-toggle.on {
+  background: #234833;
+  border-color: var(--moss);
+  color: var(--moss-bright);
+}
+
+.live-actions {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 0.9fr;
+  gap: 8px;
+}
+
+.live-actions button {
+  margin-top: 0;
 }
