@@ -48,10 +48,13 @@ button {
 }
 
 .app {
-  min-height: 100dvh;
-  min-height: 100svh;
+  height: 100dvh;
+  height: 100svh;
+  max-height: 100dvh;
+  max-height: 100svh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   padding:
     calc(12px + env(safe-area-inset-top))
     12px
@@ -60,6 +63,11 @@ button {
   background:
     radial-gradient(1200px 480px at 50% -80px, #1e3a2c 0%, transparent 70%),
     linear-gradient(180deg, #101c17 0%, var(--bg) 42%);
+}
+
+.sticky-head {
+  flex-shrink: 0;
+  z-index: 5;
 }
 
 .topbar {
@@ -125,8 +133,8 @@ button {
 
 .section-nav {
   display: grid;
-  grid-template-columns: var(--tap) 1fr var(--tap);
-  align-items: center;
+  grid-template-columns: 1fr auto;
+  align-items: start;
   gap: 8px;
 }
 
@@ -138,6 +146,7 @@ button {
   border: 1px solid var(--line);
   font-size: 1.4rem;
   line-height: 1;
+  color: var(--mist);
 }
 
 .nav-btn:disabled {
@@ -145,11 +154,13 @@ button {
 }
 
 .section-title {
-  text-align: center;
+  text-align: left;
+  min-width: 0;
 }
 
 .section-title button {
   width: 100%;
+  text-align: left;
 }
 
 .kicker {
@@ -161,16 +172,9 @@ button {
 
 .route {
   margin: 4px 0 0;
-  font-size: 1.15rem;
+  font-size: 0.95rem;
   font-weight: 700;
-}
-
-.meta {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-  margin-top: 10px;
+  line-height: 1.35;
 }
 
 .chip {
@@ -182,13 +186,16 @@ button {
   color: var(--muted);
 }
 
+.chip.diff-badge {
+  margin-top: 2px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .chip.diff-easy { color: var(--easy); }
 .chip.diff-mid { color: var(--mid); }
 .chip.diff-hard { color: var(--hard); }
 .chip.diff-extreme { color: var(--extreme); }
-.chip.hydro-long { color: #7ec8e3; }
-.chip.hydro-mid { color: var(--sand); }
-.chip.hydro-short { color: var(--easy); }
 
 .stage-row {
   display: flex;
@@ -587,8 +594,11 @@ button {
 
 .panel {
   flex: 1;
+  min-height: 0;
   margin-top: 12px;
   overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding-bottom: 76px;
 }
 
@@ -614,13 +624,24 @@ button {
   right: 12px;
   bottom: calc(10px + env(safe-area-inset-bottom));
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 6px;
+  grid-template-columns: 44px 1fr 1fr 1fr 1fr 44px;
+  gap: 4px;
   padding: 6px;
   border-radius: 18px;
   background: rgba(19, 32, 26, 0.92);
   border: 1px solid var(--line);
   backdrop-filter: blur(12px);
+  align-items: center;
+}
+
+.tabs .tab-nav {
+  width: 44px;
+  height: 48px;
+  min-height: 48px;
+  border-radius: 14px;
+  background: var(--bg-chip);
+  border: 1px solid var(--line);
+  font-size: 1.35rem;
 }
 
 .tab {
@@ -628,7 +649,7 @@ button {
   border-radius: 14px;
   color: var(--muted);
   font-weight: 700;
-  font-size: 0.88rem;
+  font-size: 0.72rem;
 }
 
 .tab.active {
@@ -682,16 +703,6 @@ button {
   color: var(--muted);
   font-size: 0.8rem;
   text-align: center;
-}
-
-.next-section {
-  margin-top: 10px;
-  width: 100%;
-  min-height: 52px;
-  border-radius: 14px;
-  background: linear-gradient(90deg, #3d7a55, #2f5e42);
-  font-weight: 700;
-  font-size: 1rem;
 }
 
 .install {
