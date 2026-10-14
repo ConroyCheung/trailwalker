@@ -1,0 +1,19 @@
+trailwalker.conroycheung.com {
+	encode gzip zstd
+	root * /var/www/trailwalker
+	try_files {path} {path}/ /index.html
+	file_server
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Frame-Options DENY
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
+	header /assets/* Cache-Control "public, max-age=31536000, immutable"
+	header /sw.js Cache-Control "no-cache, no-store, must-revalidate"
+	header /manifest.webmanifest Cache-Control "no-cache, no-store, must-revalidate"
+	header /index.html Cache-Control "no-cache, no-store, must-revalidate"
+}
