@@ -861,12 +861,21 @@ button {
 .live--practice .live-etas--compact .live-eta-list {
   flex: 1 1 auto;
   min-height: 0;
-  max-height: 28vh;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   margin: 4px 0 0;
   padding-right: 2px;
+}
+
+/* 約 3 行：name 行高 + padding 6+6 + border */
+.live--practice .live-etas--rows3 {
+  flex: 0 0 auto;
+  max-height: none;
+}
+
+.live--practice .live-etas--rows3 .live-eta-list {
+  max-height: calc(3 * (0.82rem * 1.35 + 12px + 1px));
 }
 
 /* 展開全部：佔剩餘高度，列表內 scroll，唔頂走開始掣 */
@@ -992,6 +1001,24 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.live-etas-count {
+  margin: 0;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+}
+
+button.live-etas-count {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 2px 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .live-link--inline {

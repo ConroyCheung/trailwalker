@@ -38,10 +38,15 @@ type Props = {
   onSectionChange: (id: number) => void;
 };
 
+const ETA_USER_PAUSE_MS = 60_000;
+
 export function LivePanel({ sectionId, onSectionChange }: Props) {
   const [session, setSession] = useState<LiveSession>(() => loadLiveSession());
   const [trackMatch, setTrackMatch] = useState<TrackMatch | null>(null);
-  const [etaExpanded, setEtaExpanded] = useState(false);
+  /** 人手 scroll ETA 後，用來觸發 1 分鐘後再 auto-follow */
+  const [etaFollowNonce, setEtaFollowNonce] = useState(0);
+  /** false = 列表高度約 3 站；true = 佔滿剩餘高度顯示全部 */
+  const [etaFullHeight, setEtaFullHeight] = useState(false);
   const tick = session.status === "running" || session.status === "paused";
   const now = useNow(tick || session.status === "ended");
   const geoActive =
@@ -49,6 +54,11 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
   const geo = useGeolocation(geoActive);
   const lastFixAt = useRef<number>(0);
   const skipSectionSync = useRef(false);
+  const etaListRef = useRef<HTMLUListElement | null>(null);
+  const etaCurrentRef = useRef<HTMLLIElement | null>(null);
+  const etaUserPausedUntilRef = useRef(0);
+  const etaProgrammaticScrollRef = useRef(false);
+  const etaResumeTimerRef = useRef<number | null>(null);
   const inPractice =
     session.status === "ready" || session.status === "running" || session.status === "paused";
 
@@ -432,12 +442,46 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
     ? `${training.name} · ${training.totalKm.toFixed(1)} km · ${session.trainingTargetHours} h · ${session.plannedStartTime} 起`
     : `第 ${session.startSectionId}–${session.endSectionId} 段 · ${session.targetHours} h · ${session.plannedStartTime} 起`;
 
-  const etaRowsVisible = useMemo(() => {
-    const rows = etas.rows;
-    if (etaExpanded || rows.length <= 3) return rows;
-    // 一屏：而家／下一個／下下一個
-    return rows.slice(0, 3);
-  }, [etas.rows, etaExpanded]);
+  /** 地形密碼列表：跟進度 auto-scroll；人手 scroll 暫停 1 分鐘 */
+  useEffect(() => {
+    if (!inPractice) return;
+    if (Date.now() < etaUserPausedUntilRef.current) return;
+    const el = etaCurrentRef.current;
+    const list = etaListRef.current;
+    if (!el || !list) return;
+    etaProgrammaticScrollRef.current = true;
+    const top = el.offsetTop - list.clientHeight / 3;
+    list.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    const t = window.setTimeout(() => {
+      etaProgrammaticScrollRef.current = false;
+    }, 450);
+    return () => window.clearTimeout(t);
+  }, [
+    inPractice,
+    etaFullHeight,
+    session.kmInSection,
+    session.currentSectionId,
+    etas.rows[0]?.to,
+    etas.rows[0]?.distanceKm,
+    etas.rows.length,
+    etaFollowNonce,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (etaResumeTimerRef.current != null) window.clearTimeout(etaResumeTimerRef.current);
+    };
+  }, []);
+
+  const onEtaListScroll = () => {
+    if (etaProgrammaticScrollRef.current) return;
+    etaUserPausedUntilRef.current = Date.now() + ETA_USER_PAUSE_MS;
+    if (etaResumeTimerRef.current != null) window.clearTimeout(etaResumeTimerRef.current);
+    etaResumeTimerRef.current = window.setTimeout(() => {
+      etaUserPausedUntilRef.current = 0;
+      setEtaFollowNonce((n) => n + 1);
+    }, ETA_USER_PAUSE_MS);
+  };
 
   const gpsHint = !session.gpsOn
     ? "GPS 關"
@@ -789,23 +833,29 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
             progressKm={session.kmInSection}
           />
 
-          <div className={`live-etas card live-etas--compact${etaExpanded ? " live-etas--expanded" : ""}`}>
+          <div
+            className={`live-etas card live-etas--compact${etaFullHeight ? " live-etas--expanded" : " live-etas--rows3"}`}
+          >
             <div className="live-etas-head">
               <div className="label">預計抵達 · 地形密碼</div>
-              {etas.rows.length > 3 ? (
-                <button
-                  type="button"
-                  className="live-link live-link--inline"
-                  onClick={() => setEtaExpanded((v) => !v)}
-                >
-                  {etaExpanded ? "收起" : `全部 ${etas.rows.length}`}
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className="live-help live-etas-count"
+                title={etaFullHeight ? "收至 3 站高" : "展開全部高"}
+                onClick={() => setEtaFullHeight((v) => !v)}
+              >
+                {etaFullHeight ? "全部高" : "3 站高"}
+              </button>
             </div>
-            <ul className="live-eta-list">
-              {etaRowsVisible.map((row, i) => (
+            <ul
+              className="live-eta-list"
+              ref={etaListRef}
+              onScroll={onEtaListScroll}
+            >
+              {etas.rows.map((row, i) => (
                 <li
                   key={`${row.sectionId}-${row.to}-${i}`}
+                  ref={i === 0 ? etaCurrentRef : undefined}
                   className={i === 0 ? "current" : ""}
                 >
                   <div className="live-eta-name">
