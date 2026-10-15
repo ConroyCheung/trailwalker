@@ -17,9 +17,9 @@ type Props = {
 const LOCAL_TILES = "/map-tiles/{z}/{x}/{y}.png";
 const CARTO_KEY = (import.meta.env.VITE_CARTO_API_KEY as string | undefined)?.trim() ?? "";
 
+/** CARTO raster — no retina/@2x; key as ?key= per CARTO email */
 function cartoDarkUrl(key: string) {
-  // Raster basemap — key removes "API KEY REQUIRED" watermark
-  return `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(key)}`;
+  return `https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png?key=${encodeURIComponent(key)}`;
 }
 
 export function LiveMap({
@@ -62,36 +62,36 @@ export function LiveMap({
     const map = L.map(containerRef.current, {
       zoomControl: false,
       attributionControl: true,
-      maxZoom: 16,
+      maxZoom: CARTO_KEY ? 16 : 14,
       minZoom: 10,
     });
 
     L.control.zoom({ position: "topright" }).addTo(map);
 
-    // Offline corridor pack (always) — covers z11–13 without network
-    const local = L.tileLayer(LOCAL_TILES, {
-      maxZoom: 16,
+    /*
+     * Why zoom used to need a key:
+     * Offline pack only has z11–13. Zooming past that requested CARTO CDN tiles.
+     * Without ?key=, CARTO returns "API KEY REQUIRED" watermark tiles.
+     *
+     * Now:
+     * - Always ship local tiles (works offline, no key).
+     * - If VITE_CARTO_API_KEY is set, add keyed CDN under them for sharper zoom online.
+     */
+    if (CARTO_KEY) {
+      L.tileLayer(cartoDarkUrl(CARTO_KEY), {
+        maxZoom: 16,
+        attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; OSM',
+      }).addTo(map);
+    }
+
+    L.tileLayer(LOCAL_TILES, {
+      maxZoom: CARTO_KEY ? 13 : 14,
       maxNativeZoom: 13,
       minZoom: 10,
       attribution: "離線底圖",
       errorTileUrl:
         "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
-    });
-
-    if (CARTO_KEY) {
-      const online = L.tileLayer(cartoDarkUrl(CARTO_KEY), {
-        maxZoom: 16,
-        subdomains: "abcd",
-        attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; OSM',
-      });
-      online.addTo(map);
-      online.setZIndex(1);
-      local.addTo(map);
-      local.setZIndex(2);
-    } else {
-      // No key → local only (avoids CARTO watermark tiles)
-      local.addTo(map);
-    }
+    }).addTo(map);
 
     const route = L.polyline([], {
       color: "#5cb87a",
@@ -136,7 +136,10 @@ export function LiveMap({
     if (!map || !route) return;
     route.setLatLngs(routeLatLngs);
     if (routeLatLngs.length >= 2) {
-      map.fitBounds(L.latLngBounds(routeLatLngs as L.LatLngTuple[]), { padding: [24, 24], maxZoom: 13 });
+      map.fitBounds(L.latLngBounds(routeLatLngs as L.LatLngTuple[]), {
+        padding: [24, 24],
+        maxZoom: 13,
+      });
     }
   }, [routeLatLngs]);
 
@@ -171,7 +174,6 @@ export function LiveMap({
         <span className="leg-route">今日路線</span>
         <span className="leg-done">已行</span>
         <span className="leg-pos">GPS</span>
-        {!CARTO_KEY ? <span className="leg-note">（離線底圖）</span> : null}
       </div>
     </div>
   );
