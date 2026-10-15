@@ -1067,3 +1067,97 @@ button {
 .live-gps-sub {
   margin-top: 6px;
 }
+
+.live-remain-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+  text-align: center;
+}
+
+.live-remain-grid .k {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  margin-bottom: 2px;
+}
+
+.live-remain-grid strong {
+  font-size: 1.35rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--sand);
+}
+
+.live-map-wrap {
+  position: relative;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: #0a1210;
+}
+
+.live-map {
+  height: 220px;
+  width: 100%;
+  z-index: 0;
+}
+
+.live-map-legend {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  padding: 6px 8px;
+  background: rgba(12, 22, 18, 0.92);
+  border-top: 1px solid var(--line);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.live-map-legend span::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 3px;
+  margin-right: 5px;
+  vertical-align: middle;
+  border-radius: 2px;
+}
+
+.leg-route::before {
+  background: #5cb87a;
+}
+
+.leg-done::before {
+  background: #c9a66b;
+}
+
+.leg-pos::before {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3d7a55;
+  border: 1px solid #d7e4db;
+}
+
+/* Leaflet dark chrome */
+.leaflet-container {
+  background: #0a1210;
+  font: inherit;
+}
+
+.leaflet-control-zoom a {
+  background: var(--bg-raised) !important;
+  color: var(--mist) !important;
+  border-color: var(--line) !important;
+}
+
+.leaflet-control-attribution {
+  background: rgba(12, 22, 18, 0.85) !important;
+  color: var(--muted) !important;
+  font-size: 0.65rem !important;
+}
+
+.leaflet-control-attribution a {
+  color: var(--sand) !important;
+}

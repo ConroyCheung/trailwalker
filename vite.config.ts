@@ -42,11 +42,23 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Includes public/map-tiles/** (offline corridor basemap ~340KB)
         globPatterns: ["**/*.{js,css,html,svg,png,webmanifest,ico,json,woff2}"],
         navigateFallback: "/index.html",
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: true,
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/.*\.basemaps\.cartocdn\.com\/.*/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "carto-online-tiles",
+              expiration: { maxEntries: 400, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
       },
     }),
   ],

@@ -11,6 +11,7 @@ import {
   formatDuration,
   terrainAt,
 } from "../lib/live/pace";
+import { computeRemainKm } from "../lib/live/remainKm";
 import {
   buildSummary,
   currentSectionKmCap,
@@ -22,6 +23,7 @@ import {
   type LiveSession,
 } from "../lib/live/session";
 import { formatOffTrack, nearestOnTrack, type TrackMatch } from "../lib/live/trackMatch";
+import { LiveMap } from "./LiveMap";
 
 type Props = {
   sectionId: number;
@@ -292,6 +294,17 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
           : "貼近目標";
 
   const speedLabel = formatSpeedKmh(geo.fix?.speedMps);
+  const remain = useMemo(
+    () =>
+      computeRemainKm({
+        currentSectionId: session.currentSectionId,
+        kmInSection: session.kmInSection,
+        startSectionId: session.startSectionId,
+        endSectionId: session.endSectionId,
+        kmAt: trackMatch && !trackMatch.offTrack ? trackMatch.kmAt : null,
+      }),
+    [session, trackMatch],
+  );
 
   return (
     <div className="live">
@@ -452,6 +465,33 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
 
       {session.status === "running" || session.status === "paused" ? (
         <>
+          <div className="live-remain card">
+            <div className="label">仲有幾多 km{remain.estimated ? "（估）" : ""}</div>
+            <div className="live-remain-grid">
+              <div>
+                <span className="k">本段</span>
+                <strong>{remain.sectionRemainKm.toFixed(1)}</strong>
+              </div>
+              <div>
+                <span className="k">今日</span>
+                <strong>{remain.todayRemainKm.toFixed(1)}</strong>
+              </div>
+              <div>
+                <span className="k">全場</span>
+                <strong>{remain.fullRemainKm.toFixed(1)}</strong>
+              </div>
+            </div>
+          </div>
+
+          <LiveMap
+            currentSectionId={session.currentSectionId}
+            startSectionId={session.startSectionId}
+            endSectionId={session.endSectionId}
+            geo={geo.fix}
+            trackMatch={trackMatch}
+            follow={session.gpsOn && session.status === "running"}
+          />
+
           <div className="live-here card">
             <div className="label">而家位置</div>
             <p className="live-route">
@@ -614,7 +654,7 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
               )
             ) : (
               <p className="live-help">
-                關住慳電。認路底圖＝OTW 2026 官方路線（終段：元荃古道→大棠→大欖林道→M178–M193→青盈路→哈羅）
+                關住慳電。地圖已內建離線底圖（z11–13）；認路＝OTW 官方線（終段元荃古道→哈羅）
               </p>
             )}
           </div>
