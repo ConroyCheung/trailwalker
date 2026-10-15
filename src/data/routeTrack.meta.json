@@ -1,0 +1,196 @@
+{
+  "generatedAt": "2026-10-15T02:30:03.941Z",
+  "report": [
+    {
+      "sectionId": 1,
+      "rawKm": 16.23,
+      "targetKm": 15.5,
+      "snapStartM": 3.9,
+      "snapEndM": 10.4,
+      "keptPts": 299,
+      "endName": "一號檢查站 CP1: 西灣 Sai Wan"
+    },
+    {
+      "sectionId": 2,
+      "rawKm": 8.14,
+      "targetKm": 8.6,
+      "snapStartM": 10.4,
+      "snapEndM": 8.4,
+      "keptPts": 162,
+      "endName": "二號檢查站 CP2: 北潭坳 Pak tam Au"
+    },
+    {
+      "sectionId": 3,
+      "rawKm": 9.14,
+      "targetKm": 10.2,
+      "snapStartM": 8.4,
+      "snapEndM": 5.3,
+      "keptPts": 184,
+      "endName": "三號檢查站 CP3: 企嶺下 Kei Ling Ha"
+    },
+    {
+      "sectionId": 4,
+      "rawKm": 12.68,
+      "targetKm": 12.7,
+      "snapStartM": 5.3,
+      "snapEndM": 32.3,
+      "keptPts": 263,
+      "endName": "四號檢查站 CP4: 基維爾營 Gilwell Campsite"
+    },
+    {
+      "sectionId": 5,
+      "rawKm": 7.91,
+      "targetKm": 8.5,
+      "snapStartM": 32.3,
+      "snapEndM": 9.9,
+      "keptPts": 160,
+      "endName": "五號檢查站 CP5: 畢架山 Beacon Hill"
+    },
+    {
+      "sectionId": 6,
+      "rawKm": 5.17,
+      "targetKm": 6.1,
+      "snapStartM": 9.9,
+      "snapEndM": 43.2,
+      "keptPts": 105,
+      "endName": "六號檢查站 CP6: 走私坳警察射擊場 Smugglers Ridge Rifle Range"
+    },
+    {
+      "sectionId": 7,
+      "rawKm": 8.83,
+      "targetKm": 7.4,
+      "snapStartM": 43.2,
+      "snapEndM": 13.7,
+      "keptPts": 178,
+      "endName": "七號檢查站 CP7: 鉛礦坳 Lead Mine Pass"
+    },
+    {
+      "sectionId": 8,
+      "rawKm": 9.15,
+      "targetKm": 9.7,
+      "snapStartM": 13.7,
+      "snapEndM": 3.7,
+      "keptPts": 171,
+      "endName": "八號檢查站 CP8: 大帽山 Tai Mo Shan"
+    },
+    {
+      "sectionId": 9,
+      "rawKm": 9.49,
+      "targetKm": 11.3,
+      "snapStartM": 3.7,
+      "snapEndM": 6.7,
+      "keptPts": 189,
+      "endName": "九號檢查站 CP9: 大欖涌水塘 Tai Lam Chung Reservoir"
+    },
+    {
+      "sectionId": 10,
+      "rawKm": 12.97,
+      "targetKm": 10.8,
+      "snapStartM": 6.7,
+      "snapEndM": 9.3,
+      "keptPts": 250,
+      "endName": "終點 Finish Point: 哈羅香港國際學校 Harrow International School Hong K"
+    }
+  ],
+  "crossMac": {
+    "points": 8008,
+    "km": 98.08802802616917,
+    "meanDistToOtwKm": 0.053276505841187774,
+    "meanDistOtwToMacKm": 0.03194327757962954
+  },
+  "crossS1": {
+    "points": 955,
+    "km": 10.132806058199254,
+    "meanDistToOtwS1Km": 0.00750144265303312
+  },
+  "checkpoints": [
+    {
+      "id": "start",
+      "name": "北潭涌起步",
+      "sectionEnds": 0,
+      "official": "Pak Tam Chung",
+      "lat": 22.397723,
+      "lng": 114.320271
+    },
+    {
+      "id": "cp1",
+      "name": "CP1 西灣",
+      "sectionEnds": 1,
+      "official": "Sai Wan",
+      "lat": 22.397038,
+      "lng": 114.370942
+    },
+    {
+      "id": "cp2",
+      "name": "CP2 北潭凹",
+      "sectionEnds": 2,
+      "official": "Pak Tam Au",
+      "lat": 22.420687,
+      "lng": 114.331959
+    },
+    {
+      "id": "cp3",
+      "name": "CP3 企嶺下",
+      "sectionEnds": 3,
+      "official": "Kei Ling Ha",
+      "lat": 22.404924,
+      "lng": 114.279085
+    },
+    {
+      "id": "cp4",
+      "name": "CP4 黃泥頭／基維爾營",
+      "sectionEnds": 4,
+      "official": "Gilwell Campsite",
+      "lat": 22.360976,
+      "lng": 114.222039
+    },
+    {
+      "id": "cp5",
+      "name": "CP5 筆架山",
+      "sectionEnds": 5,
+      "official": "Beacon Hill",
+      "lat": 22.349699,
+      "lng": 114.169198
+    },
+    {
+      "id": "cp6",
+      "name": "CP6 走私坳",
+      "sectionEnds": 6,
+      "official": "Smugglers Ridge",
+      "lat": 22.366957,
+      "lng": 114.15164
+    },
+    {
+      "id": "cp7",
+      "name": "CP7 鉛礦坳",
+      "sectionEnds": 7,
+      "official": "Lead Mine Pass",
+      "lat": 22.412036,
+      "lng": 114.158132
+    },
+    {
+      "id": "cp8",
+      "name": "CP8 荃錦坳／大帽山",
+      "sectionEnds": 8,
+      "official": "Tai Mo Shan",
+      "lat": 22.404616,
+      "lng": 114.106063
+    },
+    {
+      "id": "cp9",
+      "name": "CP9 吉慶橋／大欖涌",
+      "sectionEnds": 9,
+      "official": "Tai Lam Chung Reservoir",
+      "lat": 22.396164,
+      "lng": 114.045698
+    },
+    {
+      "id": "finish",
+      "name": "終點 哈羅",
+      "sectionEnds": 10,
+      "official": "Harrow International School Hong Kong",
+      "lat": 22.375889,
+      "lng": 113.990569
+    }
+  ]
+}

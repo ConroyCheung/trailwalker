@@ -613,7 +613,9 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
                 <p className="live-help">定位中…</p>
               )
             ) : (
-              <p className="live-help">關住慳電；開咗可認路、自動切段、偏離提示</p>
+              <p className="live-help">
+                關住慳電。認路底圖＝OTW 2026 官方路線（終段：元荃古道→大棠→大欖林道→M178–M193→青盈路→哈羅）
+              </p>
             )}
           </div>
 
