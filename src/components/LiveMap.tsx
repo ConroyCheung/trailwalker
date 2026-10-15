@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { ROUTE_TRACK } from "../data/routeTrack";
+import type { TrainingDef } from "../data/trainings";
 import type { GeoFix } from "../hooks/useGeolocation";
 import type { TrackMatch } from "../lib/live/trackMatch";
 
@@ -12,6 +13,10 @@ type Props = {
   geo: GeoFix | null;
   trackMatch: TrackMatch | null;
   follow: boolean;
+  /** 有則用練行 track（針山來回等） */
+  training?: TrainingDef | null;
+  /** 練行進度 kmAlong */
+  progressKm?: number;
 };
 
 /** Bundled offline corridor tiles only — never hits CARTO CDN (no API key / watermark). */
@@ -25,23 +30,46 @@ export function LiveMap({
   geo,
   trackMatch,
   follow,
+  training = null,
+  progressKm = 0,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
-  const routeLayerRef = useRef<L.Polyline | null>(null);
+  const dayLayerRef = useRef<L.Polyline | null>(null);
+  const sectionLayerRef = useRef<L.Polyline | null>(null);
   const doneLayerRef = useRef<L.Polyline | null>(null);
   const posMarkerRef = useRef<L.CircleMarker | null>(null);
   const snapMarkerRef = useRef<L.CircleMarker | null>(null);
+  const fittedKeyRef = useRef<string | null>(null);
 
-  const routeLatLngs = useMemo(() => {
+  const dayLatLngs = useMemo(() => {
+    if (training) return [] as L.LatLngExpression[];
     const start = Math.min(startSectionId, endSectionId);
     const end = Math.max(startSectionId, endSectionId);
     return ROUTE_TRACK.filter((p) => p.sectionId >= start && p.sectionId <= end).map(
       (p) => [p.lat, p.lng] as L.LatLngExpression,
     );
-  }, [startSectionId, endSectionId]);
+  }, [startSectionId, endSectionId, training]);
+
+  const sectionLatLngs = useMemo(() => {
+    if (training) {
+      return training.track.map((p) => [p.lat, p.lng] as L.LatLngExpression);
+    }
+    return ROUTE_TRACK.filter((p) => p.sectionId === currentSectionId).map(
+      (p) => [p.lat, p.lng] as L.LatLngExpression,
+    );
+  }, [currentSectionId, training]);
 
   const doneLatLngs = useMemo(() => {
+    if (training) {
+      const along =
+        trackMatch && !trackMatch.offTrack && trackMatch.kmAlong != null
+          ? trackMatch.kmAlong
+          : progressKm;
+      return training.track
+        .filter((p) => p.kmAlong <= along + 0.05)
+        .map((p) => [p.lat, p.lng] as L.LatLngExpression);
+    }
     const start = Math.min(startSectionId, endSectionId);
     return ROUTE_TRACK.filter((p) => {
       if (p.sectionId < start) return false;
@@ -50,7 +78,9 @@ export function LiveMap({
       if (!trackMatch || trackMatch.sectionId !== currentSectionId) return p.kmInSection <= 0;
       return p.kmInSection <= trackMatch.kmInSection + 0.05;
     }).map((p) => [p.lat, p.lng] as L.LatLngExpression);
-  }, [startSectionId, endSectionId, currentSectionId, trackMatch]);
+  }, [startSectionId, endSectionId, currentSectionId, trackMatch, training, progressKm]);
+
+  const fitKey = training ? `t:${training.id}` : `s:${currentSectionId}`;
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -73,10 +103,15 @@ export function LiveMap({
         "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
     }).addTo(map);
 
-    const route = L.polyline([], {
+    const day = L.polyline([], {
+      color: "#3d7a55",
+      weight: 3,
+      opacity: 0.35,
+    }).addTo(map);
+    const section = L.polyline([], {
       color: "#5cb87a",
-      weight: 4,
-      opacity: 0.85,
+      weight: 5,
+      opacity: 0.95,
     }).addTo(map);
     const done = L.polyline([], {
       color: "#c9a66b",
@@ -99,7 +134,8 @@ export function LiveMap({
     });
 
     mapRef.current = map;
-    routeLayerRef.current = route;
+    dayLayerRef.current = day;
+    sectionLayerRef.current = section;
     doneLayerRef.current = done;
     posMarkerRef.current = pos;
     snapMarkerRef.current = snap;
@@ -107,21 +143,27 @@ export function LiveMap({
     return () => {
       map.remove();
       mapRef.current = null;
+      fittedKeyRef.current = null;
     };
   }, []);
 
   useEffect(() => {
+    dayLayerRef.current?.setLatLngs(dayLatLngs);
+  }, [dayLatLngs]);
+
+  useEffect(() => {
     const map = mapRef.current;
-    const route = routeLayerRef.current;
-    if (!map || !route) return;
-    route.setLatLngs(routeLatLngs);
-    if (routeLatLngs.length >= 2) {
-      map.fitBounds(L.latLngBounds(routeLatLngs as L.LatLngTuple[]), {
-        padding: [24, 24],
-        maxZoom: 13,
+    const section = sectionLayerRef.current;
+    if (!map || !section) return;
+    section.setLatLngs(sectionLatLngs);
+    if (sectionLatLngs.length >= 2 && fittedKeyRef.current !== fitKey) {
+      fittedKeyRef.current = fitKey;
+      map.fitBounds(L.latLngBounds(sectionLatLngs as L.LatLngTuple[]), {
+        padding: [28, 28],
+        maxZoom: 14,
       });
     }
-  }, [routeLatLngs]);
+  }, [sectionLatLngs, fitKey]);
 
   useEffect(() => {
     doneLayerRef.current?.setLatLngs(doneLatLngs);
@@ -151,7 +193,7 @@ export function LiveMap({
     <div className="live-map-wrap">
       <div ref={containerRef} className="live-map" role="img" aria-label="練行路線地圖" />
       <div className="live-map-legend">
-        <span className="leg-route">今日路線</span>
+        <span className="leg-route">{training ? "來回" : "本段"}</span>
         <span className="leg-done">已行</span>
         <span className="leg-pos">GPS</span>
       </div>

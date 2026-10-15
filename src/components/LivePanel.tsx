@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ROLE_LABEL, SECTIONS, TREND_LABEL, TREND_SYMBOL } from "../data/sections";
+import { getTraining, TRAININGS, trainingRaceKm } from "../data/trainings";
 import { useGeolocation } from "../hooks/useGeolocation";
 import { useNow } from "../hooks/useNow";
 import { formatSpeedKmh, gpsStepKm } from "../lib/live/geo";
 import {
   allocatedHours,
   buildEtaSnapshot,
+  buildTrainingEtaSnapshot,
   DEFAULT_TARGET_HOURS,
   formatClock,
   formatDuration,
@@ -22,7 +24,12 @@ import {
   saveLiveSession,
   type LiveSession,
 } from "../lib/live/session";
-import { formatOffTrack, nearestOnTrack, type TrackMatch } from "../lib/live/trackMatch";
+import {
+  formatOffTrack,
+  nearestOnTrack,
+  nearestOnTraining,
+  type TrackMatch,
+} from "../lib/live/trackMatch";
 import { LiveMap } from "./LiveMap";
 
 type Props = {
@@ -43,7 +50,9 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
     saveLiveSession(session);
   }, [session]);
 
-  /** 外部轉段時同步（自動認段觸發時跳過重置進度） */
+  const training = getTraining(session.trainingId);
+
+  /** 外部轉段時同步（自動認段觸發時跳過重置進度）；練行模式唔跟 App 段重置 */
   useEffect(() => {
     if (skipSectionSync.current) {
       skipSectionSync.current = false;
@@ -51,6 +60,7 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
       return;
     }
     setSession((s) => {
+      if (s.trainingId) return s;
       if (s.status !== "idle" && s.status !== "ended") {
         if (s.currentSectionId === sectionId) return s;
         const elapsed = elapsedInSectionMs(s, Date.now());
@@ -91,7 +101,10 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
       accuracyM: geo.fix.accuracyM,
       at: geo.fix.at,
     };
-    const match = nearestOnTrack(sample.lat, sample.lng);
+    const activeTraining = getTraining(session.trainingId);
+    const match = activeTraining
+      ? nearestOnTraining(sample.lat, sample.lng, activeTraining)
+      : nearestOnTrack(sample.lat, sample.lng);
     setTrackMatch(match);
 
     if (!session.gpsFollow) {
@@ -121,6 +134,16 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
         lastGpsLat: lastLat,
         lastGpsLng: lastLng,
       };
+
+      if (getTraining(s.trainingId)) {
+        if (!match.offTrack) {
+          next = { ...next, kmInSection: match.kmAlong ?? match.kmInSection };
+        } else if (step.addKm > 0) {
+          const cap = currentSectionKmCap(s);
+          next = { ...next, kmInSection: Math.min(cap, s.kmInSection + step.addKm) };
+        }
+        return next;
+      }
 
       if (!match.offTrack) {
         const inRange = match.sectionId >= s.startSectionId && match.sectionId <= s.endSectionId;
@@ -153,32 +176,55 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
       skipSectionSync.current = true;
       onSectionChange(pendingSwitch.id);
     }
-  }, [geo.fix, session.status, session.gpsOn, session.gpsFollow, session.autoSection, onSectionChange]);
+  }, [
+    geo.fix,
+    session.status,
+    session.gpsOn,
+    session.gpsFollow,
+    session.autoSection,
+    session.trainingId,
+    onSectionChange,
+  ]);
 
   const section = SECTIONS[session.currentSectionId - 1];
   const kmCap = currentSectionKmCap(session);
   const elapsed = elapsedInSectionMs(session, now);
   const practiceMs = practiceElapsedMs(session, now);
-  const terrain = useMemo(() => terrainAt(section, session.kmInSection), [section, session.kmInSection]);
-  const etas = useMemo(
-    () =>
-      buildEtaSnapshot({
-        targetHours: session.targetHours,
-        currentSectionId: session.currentSectionId,
-        fromSectionId: session.startSectionId,
-        toSectionId: session.endSectionId,
-        kmInSection: session.kmInSection,
-        elapsedInCurrentMs: elapsed,
+  const terrainKm = training
+    ? trainingRaceKm(training, session.kmInSection)
+    : session.kmInSection;
+  const terrain = useMemo(() => terrainAt(section, terrainKm), [section, terrainKm]);
+  const etas = useMemo(() => {
+    if (training) {
+      const outEnd = training.track.filter((p) => p.leg === "out").at(-1);
+      return buildTrainingEtaSnapshot({
+        name: training.name,
+        totalKm: training.totalKm,
+        kmAlong: session.kmInSection,
+        targetHours: session.trainingTargetHours,
+        elapsedMs: elapsed,
         nowTs: now,
-      }),
-    [session, elapsed, now],
-  );
+        turnLabel: outEnd?.label ?? "針山山頂",
+        turnKm: outEnd?.kmAlong,
+      });
+    }
+    return buildEtaSnapshot({
+      targetHours: session.targetHours,
+      currentSectionId: session.currentSectionId,
+      fromSectionId: session.startSectionId,
+      toSectionId: session.endSectionId,
+      kmInSection: session.kmInSection,
+      elapsedInCurrentMs: elapsed,
+      nowTs: now,
+    });
+  }, [session, elapsed, now, training]);
 
   const patch = (fn: (s: LiveSession) => LiveSession) => setSession(fn);
 
   const start = () => {
     const t = Date.now();
-    const startId = session.startSectionId;
+    const active = getTraining(session.trainingId);
+    const startId = active ? active.raceSectionId : session.startSectionId;
     patch((s) => ({
       ...s,
       status: "running",
@@ -187,7 +233,10 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
       sectionStartedAt: t,
       sectionPausedMs: 0,
       pausedAt: null,
-      currentSectionId: s.startSectionId,
+      currentSectionId: startId,
+      startSectionId: active ? startId : s.startSectionId,
+      endSectionId: active ? startId : s.endSectionId,
+      autoSection: active ? false : s.autoSection,
       kmInSection: 0,
       lastGpsLat: null,
       lastGpsLng: null,
@@ -233,11 +282,22 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
     const next = defaultLiveSession(sectionId);
     next.targetHours = session.targetHours;
     next.endSectionId = session.endSectionId;
+    next.trainingId = session.trainingId;
+    next.trainingTargetHours = session.trainingTargetHours;
+    if (session.trainingId) {
+      const t = getTraining(session.trainingId);
+      if (t) {
+        next.currentSectionId = t.raceSectionId;
+        next.startSectionId = t.raceSectionId;
+        next.endSectionId = t.raceSectionId;
+        next.autoSection = false;
+      }
+    }
     setSession(next);
   };
 
   const arriveNext = () => {
-    if (session.currentSectionId >= session.endSectionId) {
+    if (session.trainingId || session.currentSectionId >= session.endSectionId) {
       end();
       return;
     }
@@ -302,8 +362,9 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
         startSectionId: session.startSectionId,
         endSectionId: session.endSectionId,
         kmAt: trackMatch && !trackMatch.offTrack ? trackMatch.kmAt : null,
+        trainingTotalKm: training?.totalKm ?? null,
       }),
-    [session, trackMatch],
+    [session, trackMatch, training],
   );
 
   return (
@@ -314,7 +375,7 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
           <div className="live-status">
             {statusLabel}
             {session.status === "running" || session.status === "paused"
-              ? ` · 本段 ${formatDuration(elapsed)} · 今日 ${formatDuration(practiceMs)}`
+              ? ` · ${training ? "練行" : "本段"} ${formatDuration(elapsed)} · 今日 ${formatDuration(practiceMs)}`
               : null}
           </div>
         </div>
@@ -332,13 +393,17 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
             <li>
               <span>練習範圍</span>
               <strong>
-                第 {session.summary.fromSectionId}–{session.summary.toSectionId} 段
+                {session.summary.trainingName
+                  ? session.summary.trainingName
+                  : `第 ${session.summary.fromSectionId}–${session.summary.toSectionId} 段`}
               </strong>
             </li>
             <li>
               <span>停响</span>
               <strong>
-                第 {session.summary.lastSectionId} 段 · {session.summary.kmInLastSection.toFixed(1)} km
+                {session.summary.trainingName
+                  ? `${session.summary.kmInLastSection.toFixed(1)} / 來回 km`
+                  : `第 ${session.summary.lastSectionId} 段 · ${session.summary.kmInLastSection.toFixed(1)} km`}
               </strong>
             </li>
             <li>
@@ -346,7 +411,7 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
               <strong>{session.summary.gpsKmTotal.toFixed(2)} km</strong>
             </li>
             <li>
-              <span>目標全場</span>
+              <span>{session.summary.trainingName ? "目標用時" : "目標全場"}</span>
               <strong>{session.summary.targetHours} h</strong>
             </li>
           </ul>
@@ -371,86 +436,158 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
       {session.status === "idle" || session.status === "ended" ? (
         <div className="live-setup card">
           <div className="live-field">
-            <label htmlFor="live-target">全場目標完成時間</label>
-            <div className="live-target-row">
-              <input
-                id="live-target"
-                type="number"
-                min={20}
-                max={48}
-                step={0.5}
-                value={session.targetHours}
-                onChange={(e) =>
-                  patch((s) => ({
-                    ...s,
-                    targetHours: Number(e.target.value) || DEFAULT_TARGET_HOURS,
-                  }))
-                }
-              />
-              <span>小時</span>
-            </div>
-            <p className="live-help">按各段 hours 權重拆時間（權重總和約 34.5h）</p>
-          </div>
-
-          <div className="live-field">
-            <span className="live-label">今日練習範圍</span>
+            <span className="live-label">練習類型</span>
             <div className="live-range">
               <select
-                value={session.startSectionId}
+                value={session.trainingId ?? "race"}
                 onChange={(e) => {
-                  const id = Number(e.target.value);
+                  const v = e.target.value;
+                  if (v === "race") {
+                    patch((s) => ({
+                      ...s,
+                      trainingId: null,
+                      autoSection: true,
+                      kmInSection: 0,
+                    }));
+                    return;
+                  }
+                  const t = getTraining(v);
+                  if (!t) return;
                   patch((s) => ({
                     ...s,
-                    startSectionId: id,
-                    currentSectionId: id,
-                    endSectionId: Math.max(id, s.endSectionId),
+                    trainingId: t.id,
+                    trainingTargetHours: t.defaultHours,
+                    currentSectionId: t.raceSectionId,
+                    startSectionId: t.raceSectionId,
+                    endSectionId: t.raceSectionId,
+                    autoSection: false,
                     kmInSection: 0,
                   }));
-                  onSectionChange(id);
+                  onSectionChange(t.raceSectionId);
                 }}
               >
-                {SECTIONS.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    起 · 第 {s.id} 段
-                  </option>
-                ))}
-              </select>
-              <select
-                value={session.endSectionId}
-                onChange={(e) => {
-                  const id = Number(e.target.value);
-                  patch((s) => ({
-                    ...s,
-                    endSectionId: id,
-                    startSectionId: Math.min(id, s.startSectionId),
-                  }));
-                }}
-              >
-                {SECTIONS.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    止 · 第 {s.id} 段
+                <option value="race">OTW 段範圍</option>
+                {TRAININGS.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} · {t.totalKm.toFixed(1)} km
                   </option>
                 ))}
               </select>
             </div>
+            {training ? <p className="live-help">{training.blurb}</p> : null}
           </div>
 
-          <div className="live-preview">
-            <div className="label">今日預計分配</div>
-            <ul>
-              {SECTIONS.filter((s) => s.id >= session.startSectionId && s.id <= session.endSectionId).map((s) => {
-                const h = allocatedHours(session.targetHours, s.id);
-                return (
-                  <li key={s.id}>
-                    <span>
-                      第 {s.id} 段 · {s.km} km
-                    </span>
-                    <span>{h.toFixed(1)} h</span>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+          {training ? (
+            <div className="live-field">
+              <label htmlFor="live-training-target">練行目標用時</label>
+              <div className="live-target-row">
+                <input
+                  id="live-training-target"
+                  type="number"
+                  min={0.5}
+                  max={6}
+                  step={0.25}
+                  value={session.trainingTargetHours}
+                  onChange={(e) =>
+                    patch((s) => ({
+                      ...s,
+                      trainingTargetHours: Number(e.target.value) || training.defaultHours,
+                    }))
+                  }
+                />
+                <span>小時</span>
+              </div>
+              <p className="live-help">
+                去程上頂 ≈ {(training.totalKm / 2).toFixed(1)} km · 來回 {training.totalKm.toFixed(1)} km
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="live-field">
+                <label htmlFor="live-target">全場目標完成時間</label>
+                <div className="live-target-row">
+                  <input
+                    id="live-target"
+                    type="number"
+                    min={20}
+                    max={48}
+                    step={0.5}
+                    value={session.targetHours}
+                    onChange={(e) =>
+                      patch((s) => ({
+                        ...s,
+                        targetHours: Number(e.target.value) || DEFAULT_TARGET_HOURS,
+                      }))
+                    }
+                  />
+                  <span>小時</span>
+                </div>
+                <p className="live-help">按各段 hours 權重拆時間（權重總和約 34.5h）</p>
+              </div>
+
+              <div className="live-field">
+                <span className="live-label">今日練習範圍</span>
+                <div className="live-range">
+                  <select
+                    value={session.startSectionId}
+                    onChange={(e) => {
+                      const id = Number(e.target.value);
+                      patch((s) => ({
+                        ...s,
+                        startSectionId: id,
+                        currentSectionId: id,
+                        endSectionId: Math.max(id, s.endSectionId),
+                        kmInSection: 0,
+                      }));
+                      onSectionChange(id);
+                    }}
+                  >
+                    {SECTIONS.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        起 · 第 {s.id} 段
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={session.endSectionId}
+                    onChange={(e) => {
+                      const id = Number(e.target.value);
+                      patch((s) => ({
+                        ...s,
+                        endSectionId: id,
+                        startSectionId: Math.min(id, s.startSectionId),
+                      }));
+                    }}
+                  >
+                    {SECTIONS.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        止 · 第 {s.id} 段
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="live-preview">
+                <div className="label">今日預計分配</div>
+                <ul>
+                  {SECTIONS.filter((s) => s.id >= session.startSectionId && s.id <= session.endSectionId).map(
+                    (s) => {
+                      const h = allocatedHours(session.targetHours, s.id);
+                      return (
+                        <li key={s.id}>
+                          <span>
+                            第 {s.id} 段 · {s.km} km
+                          </span>
+                          <span>{h.toFixed(1)} h</span>
+                        </li>
+                      );
+                    },
+                  )}
+                </ul>
+              </div>
+            </>
+          )}
 
           <button className="live-primary" type="button" onClick={start}>
             {session.status === "ended" ? "再開一轉" : "開始 Live"}
@@ -469,17 +606,26 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
             <div className="label">仲有幾多 km{remain.estimated ? "（估）" : ""}</div>
             <div className="live-remain-grid">
               <div>
-                <span className="k">本段</span>
+                <span className="k">{training ? "剩距" : "本段"}</span>
                 <strong>{remain.sectionRemainKm.toFixed(1)}</strong>
               </div>
-              <div>
-                <span className="k">今日</span>
-                <strong>{remain.todayRemainKm.toFixed(1)}</strong>
-              </div>
-              <div>
-                <span className="k">全場</span>
-                <strong>{remain.fullRemainKm.toFixed(1)}</strong>
-              </div>
+              {!training ? (
+                <>
+                  <div>
+                    <span className="k">今日</span>
+                    <strong>{remain.todayRemainKm.toFixed(1)}</strong>
+                  </div>
+                  <div>
+                    <span className="k">全場</span>
+                    <strong>{remain.fullRemainKm.toFixed(1)}</strong>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <span className="k">已行</span>
+                  <strong>{session.kmInSection.toFixed(1)}</strong>
+                </div>
+              )}
             </div>
           </div>
 
@@ -490,12 +636,16 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
             geo={geo.fix}
             trackMatch={trackMatch}
             follow={session.gpsOn && session.status === "running"}
+            training={training}
+            progressKm={session.kmInSection}
           />
 
           <div className="live-here card">
             <div className="label">而家位置</div>
             <p className="live-route">
-              第 {section.id} 段 · {section.from} → {section.to}
+              {training
+                ? `${training.name} · ${trackMatch?.leg === "back" ? "回程" : "去程"} · ${session.kmInSection.toFixed(1)} / ${training.totalKm.toFixed(1)} km`
+                : `第 ${section.id} 段 · ${section.from} → ${section.to}`}
             </p>
             <div className="live-terrain">
               <div>
@@ -524,7 +674,7 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
 
             <div className="live-field">
               <label htmlFor="live-km">
-                本段進度 · {session.kmInSection.toFixed(1)} / {kmCap.toFixed(1)} km
+                {training ? "來回進度" : "本段進度"} · {session.kmInSection.toFixed(1)} / {kmCap.toFixed(1)} km
                 {session.gpsOn && session.gpsFollow ? " · GPS 跟蹤" : ""}
               </label>
               <input
@@ -562,13 +712,16 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
           </div>
 
           <div className="live-etas card">
-            <div className="label">預計到站</div>
+            <div className="label">{training ? "預計抵達" : "預計到站"}</div>
             <p className="live-help">左＝跟目標分配 · 右＝跟而家 pace</p>
             <ul className="live-eta-list">
-              {etas.rows.map((row) => (
-                <li key={row.sectionId} className={row.sectionId === session.currentSectionId ? "current" : ""}>
+              {etas.rows.map((row, i) => (
+                <li
+                  key={`${row.sectionId}-${row.to}-${i}`}
+                  className={!training && row.sectionId === session.currentSectionId ? "current" : i === 0 ? "current" : ""}
+                >
                   <div className="live-eta-name">
-                    第 {row.sectionId} · {row.to}
+                    {training ? `${row.from} → ${row.to}` : `第 ${row.sectionId} · ${row.to}`}
                   </div>
                   <div className="live-eta-times">
                     <span>{formatClock(row.budgetArriveAt)}</span>
@@ -598,17 +751,19 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
                 {session.gpsOn ? "開" : "關"}
               </button>
             </div>
-            <div className="live-gps-row live-gps-sub">
-              <span className="live-help">自動切段</span>
-              <button
-                type="button"
-                className={`live-toggle ${session.autoSection ? "on" : ""}`}
-                disabled={!session.gpsOn}
-                onClick={() => patch((s) => ({ ...s, autoSection: !s.autoSection }))}
-              >
-                {session.autoSection ? "開" : "關"}
-              </button>
-            </div>
+            {!training ? (
+              <div className="live-gps-row live-gps-sub">
+                <span className="live-help">自動切段</span>
+                <button
+                  type="button"
+                  className={`live-toggle ${session.autoSection ? "on" : ""}`}
+                  disabled={!session.gpsOn}
+                  onClick={() => patch((s) => ({ ...s, autoSection: !s.autoSection }))}
+                >
+                  {session.autoSection ? "開" : "關"}
+                </button>
+              </div>
+            ) : null}
             {session.gpsOn ? (
               geo.error ? (
                 <p className="live-help danger">{geo.error} · 可用進度條繼續練</p>
@@ -633,16 +788,20 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
                         <>
                           <div className="k">路線鎖定</div>
                           <strong>
-                            第 {trackMatch.sectionId} 段 · 段內 {trackMatch.kmInSection.toFixed(1)} km
+                            {training
+                              ? `${training.name} · ${trackMatch.leg === "back" ? "回程" : "去程"} · ${trackMatch.kmAlong?.toFixed(1) ?? trackMatch.kmInSection.toFixed(1)} km`
+                              : `第 ${trackMatch.sectionId} 段 · 段內 ${trackMatch.kmInSection.toFixed(1)} km`}
                             {trackMatch.label ? ` · ${trackMatch.label}` : ""}
                             {` · 離線 ${trackMatch.distanceKm < 1 ? `${Math.round(trackMatch.distanceKm * 1000)}m` : `${trackMatch.distanceKm.toFixed(1)}km`}`}
                           </strong>
-                          {trackMatch.sectionId !== session.currentSectionId ? (
+                          {!training && trackMatch.sectionId !== session.currentSectionId ? (
                             <button type="button" className="live-link" onClick={applyTrackSection}>
                               切去認到嘅第 {trackMatch.sectionId} 段
                             </button>
                           ) : (
-                            <p className="live-help">同而家段一致 · 進度跟路線投影</p>
+                            <p className="live-help">
+                              {training ? "進度跟來回軌道投影（上山＋落返）" : "同而家段一致 · 進度跟路線投影"}
+                            </p>
                           )}
                         </>
                       )}
@@ -670,7 +829,9 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
               </button>
             )}
             <button type="button" className="live-secondary" onClick={arriveNext}>
-              {session.currentSectionId >= session.endSectionId ? "完成今日" : "到站 · 下一段"}
+              {training || session.currentSectionId >= session.endSectionId
+                ? "完成練習"
+                : "到站 · 下一段"}
             </button>
             <button type="button" className="live-danger" onClick={end}>
               結束

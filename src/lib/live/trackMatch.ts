@@ -1,5 +1,6 @@
 import { OFF_TRACK_KM, ROUTE_TRACK } from "../../data/routeTrack";
 import { SECTIONS } from "../../data/sections";
+import type { TrainingDef } from "../../data/trainings";
 import { haversineKm } from "./geo";
 
 export type TrackMatch = {
@@ -12,6 +13,9 @@ export type TrackMatch = {
   label?: string;
   /** 最近頂點／投影點 */
   snap: { lat: number; lng: number };
+  /** training 模式：練習累計 km（去＋返） */
+  kmAlong?: number;
+  leg?: "out" | "back";
 };
 
 /** 本地平面近似（香港一帶夠用） */
@@ -124,4 +128,100 @@ export function formatOffTrack(distanceKm: number): string {
   if (!Number.isFinite(distanceKm)) return "偏離路線";
   if (distanceKm < 1) return `偏離約 ${Math.round(distanceKm * 1000)} m`;
   return `偏離約 ${distanceKm.toFixed(1)} km`;
+}
+
+type TrainingCandidate = {
+  distanceKm: number;
+  kmAlong: number;
+  raceKmInSection: number;
+  label?: string;
+  leg: "out" | "back";
+  snap: { lat: number; lng: number };
+};
+
+/**
+ * 練行 track（例如針山來回）最近投影。
+ * kmInSection／kmAt 用練習累計 kmAlong，方便沿用 Live 進度欄。
+ */
+export function nearestOnTraining(lat: number, lng: number, training: TrainingDef): TrackMatch {
+  const track = training.track;
+  if (track.length === 0) {
+    return {
+      sectionId: training.raceSectionId,
+      kmInSection: 0,
+      kmAt: 0,
+      kmAlong: 0,
+      distanceKm: Infinity,
+      offTrack: true,
+      snap: { lat, lng },
+      leg: "out",
+    };
+  }
+
+  let best: TrainingCandidate | null = null;
+  const lat0 = lat;
+  const lng0 = lng;
+  const p = toXY(lat, lng, lat0, lng0);
+
+  for (let i = 0; i < track.length - 1; i++) {
+    const a = track[i];
+    const b = track[i + 1];
+    const A = toXY(a.lat, a.lng, lat0, lng0);
+    const B = toXY(b.lat, b.lng, lat0, lng0);
+    const abx = B.x - A.x;
+    const aby = B.y - A.y;
+    const len2 = abx * abx + aby * aby;
+    let t = 0;
+    if (len2 > 1e-12) {
+      t = ((p.x - A.x) * abx + (p.y - A.y) * aby) / len2;
+      t = Math.max(0, Math.min(1, t));
+    }
+    const sx = A.x + abx * t;
+    const sy = A.y + aby * t;
+    const snap = fromXY(sx, sy, lat0, lng0);
+    const distanceKm = haversineKm(lat, lng, snap.lat, snap.lng);
+    const kmAlong = a.kmAlong + (b.kmAlong - a.kmAlong) * t;
+    const raceKmInSection = a.raceKmInSection + (b.raceKmInSection - a.raceKmInSection) * t;
+    const leg = t < 0.5 ? a.leg : b.leg;
+    const label = t < 0.5 ? a.label : b.label;
+
+    if (!best || distanceKm < best.distanceKm) {
+      best = {
+        distanceKm,
+        kmAlong,
+        raceKmInSection,
+        label,
+        leg,
+        snap,
+      };
+    }
+  }
+
+  for (const v of track) {
+    const d = haversineKm(lat, lng, v.lat, v.lng);
+    if (!best || d < best.distanceKm) {
+      best = {
+        distanceKm: d,
+        kmAlong: v.kmAlong,
+        raceKmInSection: v.raceKmInSection,
+        label: v.label,
+        leg: v.leg,
+        snap: { lat: v.lat, lng: v.lng },
+      };
+    }
+  }
+
+  const match = best!;
+  const kmAlong = Math.min(training.totalKm, Math.max(0, match.kmAlong));
+  return {
+    sectionId: training.raceSectionId,
+    kmInSection: kmAlong,
+    kmAt: kmAlong,
+    kmAlong,
+    distanceKm: match.distanceKm,
+    offTrack: match.distanceKm > OFF_TRACK_KM,
+    label: match.label,
+    snap: match.snap,
+    leg: match.leg,
+  };
 }

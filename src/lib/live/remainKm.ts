@@ -9,6 +9,7 @@ export type RemainKm = {
 
 /**
  * @param kmAt 全場累計（軌道投影）；若無則用段累加估
+ * @param trainingTotalKm 練行模式總距（去＋返）；有則本段／今日／全場都用練習剩距
  */
 export function computeRemainKm(opts: {
   currentSectionId: number;
@@ -16,7 +17,20 @@ export function computeRemainKm(opts: {
   startSectionId: number;
   endSectionId: number;
   kmAt: number | null;
+  trainingTotalKm?: number | null;
 }): RemainKm {
+  if (opts.trainingTotalKm != null && opts.trainingTotalKm > 0) {
+    const kmIn = Math.min(opts.trainingTotalKm, Math.max(0, opts.kmInSection));
+    const remain = Math.max(0, opts.trainingTotalKm - kmIn);
+    const r = +remain.toFixed(2);
+    return {
+      sectionRemainKm: r,
+      todayRemainKm: r,
+      fullRemainKm: r,
+      estimated: false,
+    };
+  }
+
   const section = SECTIONS[opts.currentSectionId - 1];
   const kmIn = Math.min(section.km, Math.max(0, opts.kmInSection));
   const sectionRemainKm = Math.max(0, section.km - kmIn);

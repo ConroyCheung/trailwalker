@@ -1,4 +1,5 @@
 import { SECTIONS } from "../../data/sections";
+import { getTraining } from "../../data/trainings";
 import { DEFAULT_TARGET_HOURS } from "./pace";
 
 const LIVE_KEY = "tw-live-v2";
@@ -16,6 +17,8 @@ export type LiveSummary = {
   kmInLastSection: number;
   gpsKmTotal: number;
   targetHours: number;
+  trainingId?: string | null;
+  trainingName?: string | null;
 };
 
 export type LiveSession = {
@@ -45,6 +48,10 @@ export type LiveSession = {
   /** 已完成段嘅實際用時（換段時寫入） */
   sectionElapsedLog: Record<string, number>;
   summary: LiveSummary | null;
+  /** 自訂練行（例如針山來回）；null = OTW 段範圍 */
+  trainingId: string | null;
+  /** 練行目標用時（小時） */
+  trainingTargetHours: number;
 };
 
 export function defaultLiveSession(sectionId = 1): LiveSession {
@@ -69,6 +76,8 @@ export function defaultLiveSession(sectionId = 1): LiveSession {
     gpsKmTotal: 0,
     sectionElapsedLog: {},
     summary: null,
+    trainingId: null,
+    trainingTargetHours: 1.5,
   };
 }
 
@@ -78,6 +87,9 @@ export function loadLiveSession(): LiveSession {
     if (!raw) return defaultLiveSession();
     const parsed = JSON.parse(raw) as Partial<LiveSession>;
     const base = defaultLiveSession(parsed.currentSectionId ?? parsed.startSectionId ?? 1);
+    const trainingId =
+      typeof parsed.trainingId === "string" && getTraining(parsed.trainingId) ? parsed.trainingId : null;
+    const training = getTraining(trainingId);
     return {
       ...base,
       ...parsed,
@@ -91,12 +103,16 @@ export function loadLiveSession(): LiveSession {
       gpsKmTotal: Math.max(0, Number(parsed.gpsKmTotal) || 0),
       gpsOn: Boolean(parsed.gpsOn),
       gpsFollow: parsed.gpsFollow !== false,
-      autoSection: parsed.autoSection !== false,
+      autoSection: trainingId ? false : parsed.autoSection !== false,
       lastGpsLat: numOrNull(parsed.lastGpsLat),
       lastGpsLng: numOrNull(parsed.lastGpsLng),
       sectionElapsedLog: parsed.sectionElapsedLog && typeof parsed.sectionElapsedLog === "object" ? parsed.sectionElapsedLog : {},
       summary: parsed.summary ?? null,
       status: isStatus(parsed.status) ? parsed.status : "idle",
+      trainingId,
+      trainingTargetHours: clampTrainingHours(
+        parsed.trainingTargetHours ?? training?.defaultHours ?? base.trainingTargetHours,
+      ),
     };
   } catch {
     return defaultLiveSession();
@@ -138,10 +154,13 @@ export function practiceElapsedMs(session: LiveSession, nowTs: number): number {
 }
 
 export function currentSectionKmCap(session: LiveSession): number {
+  const training = getTraining(session.trainingId);
+  if (training) return training.totalKm;
   return SECTIONS[session.currentSectionId - 1]?.km ?? 0;
 }
 
 export function buildSummary(session: LiveSession, nowTs: number): LiveSummary {
+  const training = getTraining(session.trainingId);
   return {
     endedAt: nowTs,
     practiceMs: practiceElapsedMs({ ...session, pausedAt: session.pausedAt ?? nowTs }, nowTs),
@@ -150,6 +169,13 @@ export function buildSummary(session: LiveSession, nowTs: number): LiveSummary {
     lastSectionId: session.currentSectionId,
     kmInLastSection: session.kmInSection,
     gpsKmTotal: session.gpsKmTotal,
-    targetHours: session.targetHours,
+    targetHours: training ? session.trainingTargetHours : session.targetHours,
+    trainingId: session.trainingId,
+    trainingName: training?.name ?? null,
   };
+}
+
+function clampTrainingHours(h: number): number {
+  if (!Number.isFinite(h)) return 1.5;
+  return Math.min(6, Math.max(0.5, Math.round(h * 4) / 4));
 }

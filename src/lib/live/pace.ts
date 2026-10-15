@@ -160,3 +160,67 @@ export function buildEtaSnapshot(opts: {
     rows,
   };
 }
+
+/** 單軌練行（針山來回等）ETA */
+export function buildTrainingEtaSnapshot(opts: {
+  name: string;
+  totalKm: number;
+  kmAlong: number;
+  targetHours: number;
+  elapsedMs: number;
+  nowTs: number;
+  turnLabel?: string;
+  turnKm?: number;
+}): LiveEtaSnapshot {
+  const totalKm = Math.max(opts.totalKm, 0.01);
+  const km = Math.min(totalKm, Math.max(0, opts.kmAlong));
+  const remainKm = Math.max(0, totalKm - km);
+  const allocMs = opts.targetHours * 3600_000;
+  const currentRemainBudgetMs = Math.max(0, allocMs - opts.elapsedMs);
+
+  let paceMsPerKm = allocMs / totalKm;
+  let paceFactor = 1;
+  if (km >= 0.2 && opts.elapsedMs > 60_000) {
+    paceMsPerKm = opts.elapsedMs / km;
+    paceFactor = paceMsPerKm / (allocMs / totalKm);
+  }
+  const currentRemainPaceMs = remainKm * paceMsPerKm;
+  const progressRatio = km / totalKm;
+  const aheadMs = opts.elapsedMs - allocMs * progressRatio;
+
+  const rows: SectionEta[] = [];
+  let budgetCursor = opts.nowTs + currentRemainBudgetMs;
+  let paceCursor = opts.nowTs + currentRemainPaceMs;
+
+  if (opts.turnKm != null && opts.turnKm > 0 && km < opts.turnKm) {
+    const toTurnKm = opts.turnKm - km;
+    const turnBudget = opts.nowTs + Math.max(0, (allocMs * opts.turnKm) / totalKm - opts.elapsedMs);
+    const turnPace = opts.nowTs + toTurnKm * paceMsPerKm;
+    rows.push({
+      sectionId: 0,
+      from: "而家",
+      to: opts.turnLabel ?? "轉折",
+      allocatedMs: (allocMs * opts.turnKm) / totalKm,
+      budgetArriveAt: turnBudget,
+      paceArriveAt: turnPace,
+    });
+  }
+
+  rows.push({
+    sectionId: 1,
+    from: km < (opts.turnKm ?? 0) ? opts.turnLabel ?? "轉折" : "而家",
+    to: "返抵起點",
+    allocatedMs: allocMs,
+    budgetArriveAt: budgetCursor,
+    paceArriveAt: paceCursor,
+  });
+
+  return {
+    elapsedMs: opts.elapsedMs,
+    currentRemainBudgetMs,
+    currentRemainPaceMs,
+    paceFactor,
+    aheadMs,
+    rows,
+  };
+}
