@@ -4,3 +4,6 @@ tmp
 .DS_Store
 *.local
 .vite
+.env
+.env.*
+!.env.example

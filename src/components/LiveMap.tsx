@@ -15,7 +15,12 @@ type Props = {
 };
 
 const LOCAL_TILES = "/map-tiles/{z}/{x}/{y}.png";
-const ONLINE_TILES = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+const CARTO_KEY = (import.meta.env.VITE_CARTO_API_KEY as string | undefined)?.trim() ?? "";
+
+function cartoDarkUrl(key: string) {
+  // Raster basemap — key removes "API KEY REQUIRED" watermark
+  return `https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=${encodeURIComponent(key)}`;
+}
 
 export function LiveMap({
   currentSectionId,
@@ -63,26 +68,30 @@ export function LiveMap({
 
     L.control.zoom({ position: "topright" }).addTo(map);
 
+    // Offline corridor pack (always) — covers z11–13 without network
     const local = L.tileLayer(LOCAL_TILES, {
-      maxZoom: 13,
+      maxZoom: 16,
       maxNativeZoom: 13,
       minZoom: 10,
-      attribution: "離線底圖 · Carto Dark",
+      attribution: "離線底圖",
       errorTileUrl:
         "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
     });
 
-    const online = L.tileLayer(ONLINE_TILES, {
-      maxZoom: 16,
-      subdomains: "abcd",
-      attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; OSM',
-    });
-
-    // Prefer local pack; when online and zoomed in, online layer sits under for higher zoom
-    online.addTo(map);
-    local.addTo(map);
-    local.setZIndex(2);
-    online.setZIndex(1);
+    if (CARTO_KEY) {
+      const online = L.tileLayer(cartoDarkUrl(CARTO_KEY), {
+        maxZoom: 16,
+        subdomains: "abcd",
+        attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; OSM',
+      });
+      online.addTo(map);
+      online.setZIndex(1);
+      local.addTo(map);
+      local.setZIndex(2);
+    } else {
+      // No key → local only (avoids CARTO watermark tiles)
+      local.addTo(map);
+    }
 
     const route = L.polyline([], {
       color: "#5cb87a",
@@ -162,6 +171,7 @@ export function LiveMap({
         <span className="leg-route">今日路線</span>
         <span className="leg-done">已行</span>
         <span className="leg-pos">GPS</span>
+        {!CARTO_KEY ? <span className="leg-note">（離線底圖）</span> : null}
       </div>
     </div>
   );

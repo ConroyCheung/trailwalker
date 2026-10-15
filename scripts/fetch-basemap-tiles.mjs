@@ -15,7 +15,11 @@ const routeFile = path.join(root, "src", "data", "routeTrack.ts");
 
 const ZOOMS = [11, 12, 13];
 const PAD_DEG = 0.04;
-const TILE_URL = (z, x, y) => `https://basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`;
+const CARTO_KEY = process.env.VITE_CARTO_API_KEY || process.env.CARTO_API_KEY || "";
+const TILE_URL = (z, x, y) => {
+  const base = `https://basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`;
+  return CARTO_KEY ? `${base}?key=${encodeURIComponent(CARTO_KEY)}` : base;
+};
 const CONCURRENCY = 4;
 const DELAY_MS = 40;
 
