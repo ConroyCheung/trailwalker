@@ -1,7 +1,9 @@
 /**
- * Download dark basemap tiles along OTW route corridor into public/map-tiles.
- * Offline Live map uses these first; online can still fall back to CDN.
+ * One-time download of dark basemap tiles along OTW corridor → public/map-tiles.
+ * App runtime never calls CARTO; only this script needs a key (for watermark-free PNGs).
  *
+ *   # optional: load key from .env.local
+ *   export $(grep VITE_CARTO_API_KEY .env.local | xargs)
  *   node scripts/fetch-basemap-tiles.mjs
  */
 import fs from "node:fs";
@@ -13,9 +15,19 @@ const root = path.resolve(__dirname, "..");
 const outDir = path.join(root, "public", "map-tiles");
 const routeFile = path.join(root, "src", "data", "routeTrack.ts");
 
-const ZOOMS = [11, 12, 13];
+function loadEnvKey() {
+  if (process.env.VITE_CARTO_API_KEY || process.env.CARTO_API_KEY) {
+    return process.env.VITE_CARTO_API_KEY || process.env.CARTO_API_KEY || "";
+  }
+  const local = path.join(root, ".env.local");
+  if (!fs.existsSync(local)) return "";
+  const m = fs.readFileSync(local, "utf8").match(/^\s*VITE_CARTO_API_KEY\s*=\s*(.+)\s*$/m);
+  return m ? m[1].trim() : "";
+}
+
+const ZOOMS = [11, 12, 13, 14];
 const PAD_DEG = 0.04;
-const CARTO_KEY = process.env.VITE_CARTO_API_KEY || process.env.CARTO_API_KEY || "";
+const CARTO_KEY = loadEnvKey();
 const TILE_URL = (z, x, y) => {
   const base = `https://basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`;
   return CARTO_KEY ? `${base}?key=${encodeURIComponent(CARTO_KEY)}` : base;

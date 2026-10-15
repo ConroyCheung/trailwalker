@@ -1,10 +1,11 @@
 {
-  "generatedAt": "2026-10-15T02:37:58.429Z",
+  "generatedAt": "2026-10-15T03:08:48.388Z",
   "source": "Carto Dark Matter (basemaps.cartocdn.com/dark_all)",
   "zooms": [
     11,
     12,
-    13
+    13,
+    14
   ],
   "bbox": {
     "minLat": 22.308718000000002,
@@ -12,6 +13,6 @@
     "minLng": 113.949557,
     "maxLng": 114.41999200000001
   },
-  "tileCount": 84,
+  "tileCount": 291,
   "template": "/map-tiles/{z}/{x}/{y}.png"
 }

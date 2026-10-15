@@ -654,7 +654,7 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
               )
             ) : (
               <p className="live-help">
-                關住慳電。地圖已內建離線底圖（z11–13）；認路＝OTW 官方線（終段元荃古道→哈羅）
+                關住慳電。地圖純離線底圖（唔經 CARTO）；認路＝OTW 官方線（終段元荃古道→哈羅）
               </p>
             )}
           </div>

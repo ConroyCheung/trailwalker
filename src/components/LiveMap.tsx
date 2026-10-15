@@ -14,13 +14,9 @@ type Props = {
   follow: boolean;
 };
 
+/** Bundled offline corridor tiles only — never hits CARTO CDN (no API key / watermark). */
 const LOCAL_TILES = "/map-tiles/{z}/{x}/{y}.png";
-const CARTO_KEY = (import.meta.env.VITE_CARTO_API_KEY as string | undefined)?.trim() ?? "";
-
-/** CARTO raster — no retina/@2x; key as ?key= per CARTO email */
-function cartoDarkUrl(key: string) {
-  return `https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png?key=${encodeURIComponent(key)}`;
-}
+const MAX_NATIVE_ZOOM = 14;
 
 export function LiveMap({
   currentSectionId,
@@ -62,33 +58,17 @@ export function LiveMap({
     const map = L.map(containerRef.current, {
       zoomControl: false,
       attributionControl: true,
-      maxZoom: CARTO_KEY ? 16 : 14,
+      maxZoom: MAX_NATIVE_ZOOM + 1,
       minZoom: 10,
     });
 
     L.control.zoom({ position: "topright" }).addTo(map);
 
-    /*
-     * Why zoom used to need a key:
-     * Offline pack only has z11–13. Zooming past that requested CARTO CDN tiles.
-     * Without ?key=, CARTO returns "API KEY REQUIRED" watermark tiles.
-     *
-     * Now:
-     * - Always ship local tiles (works offline, no key).
-     * - If VITE_CARTO_API_KEY is set, add keyed CDN under them for sharper zoom online.
-     */
-    if (CARTO_KEY) {
-      L.tileLayer(cartoDarkUrl(CARTO_KEY), {
-        maxZoom: 16,
-        attribution: '&copy; <a href="https://carto.com/">CARTO</a> &copy; OSM',
-      }).addTo(map);
-    }
-
     L.tileLayer(LOCAL_TILES, {
-      maxZoom: CARTO_KEY ? 13 : 14,
-      maxNativeZoom: 13,
+      maxZoom: MAX_NATIVE_ZOOM + 1,
+      maxNativeZoom: MAX_NATIVE_ZOOM,
       minZoom: 10,
-      attribution: "離線底圖",
+      attribution: "離線底圖 · OTW 走廊",
       errorTileUrl:
         "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
     }).addTo(map);
