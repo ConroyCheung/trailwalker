@@ -35,8 +35,10 @@ export type LiveSession = {
   practicePausedMs: number;
   status: LiveStatus;
   gpsOn: boolean;
-  /** GPS 跟蹤進度（開住先累距推 slider） */
+  /** GPS 跟蹤進度（開住先累距／認路推 slider） */
   gpsFollow: boolean;
+  /** 在軌道上時自動切段 */
+  autoSection: boolean;
   lastGpsLat: number | null;
   lastGpsLng: number | null;
   gpsKmTotal: number;
@@ -61,6 +63,7 @@ export function defaultLiveSession(sectionId = 1): LiveSession {
     status: "idle",
     gpsOn: false,
     gpsFollow: true,
+    autoSection: true,
     lastGpsLat: null,
     lastGpsLng: null,
     gpsKmTotal: 0,
@@ -88,6 +91,7 @@ export function loadLiveSession(): LiveSession {
       gpsKmTotal: Math.max(0, Number(parsed.gpsKmTotal) || 0),
       gpsOn: Boolean(parsed.gpsOn),
       gpsFollow: parsed.gpsFollow !== false,
+      autoSection: parsed.autoSection !== false,
       lastGpsLat: numOrNull(parsed.lastGpsLat),
       lastGpsLng: numOrNull(parsed.lastGpsLng),
       sectionElapsedLog: parsed.sectionElapsedLog && typeof parsed.sectionElapsedLog === "object" ? parsed.sectionElapsedLog : {},

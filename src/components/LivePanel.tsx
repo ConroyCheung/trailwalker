@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { nearestCheckpoint } from "../data/checkpoints";
 import { ROLE_LABEL, SECTIONS, TREND_LABEL, TREND_SYMBOL } from "../data/sections";
 import { useGeolocation } from "../hooks/useGeolocation";
 import { useNow } from "../hooks/useNow";
@@ -22,6 +21,7 @@ import {
   saveLiveSession,
   type LiveSession,
 } from "../lib/live/session";
+import { formatOffTrack, nearestOnTrack, type TrackMatch } from "../lib/live/trackMatch";
 
 type Props = {
   sectionId: number;
@@ -30,17 +30,24 @@ type Props = {
 
 export function LivePanel({ sectionId, onSectionChange }: Props) {
   const [session, setSession] = useState<LiveSession>(() => loadLiveSession());
+  const [trackMatch, setTrackMatch] = useState<TrackMatch | null>(null);
   const tick = session.status === "running" || session.status === "paused";
   const now = useNow(tick || session.status === "ended");
   const geo = useGeolocation(session.status === "running" && session.gpsOn);
   const lastFixAt = useRef<number>(0);
+  const skipSectionSync = useRef(false);
 
   useEffect(() => {
     saveLiveSession(session);
   }, [session]);
 
-  /** 外部轉段時同步 */
+  /** 外部轉段時同步（自動認段觸發時跳過重置進度） */
   useEffect(() => {
+    if (skipSectionSync.current) {
+      skipSectionSync.current = false;
+      setSession((s) => (s.currentSectionId === sectionId ? s : { ...s, currentSectionId: sectionId }));
+      return;
+    }
     setSession((s) => {
       if (s.status !== "idle" && s.status !== "ended") {
         if (s.currentSectionId === sectionId) return s;
@@ -50,7 +57,7 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
           sectionElapsedLog: { ...s.sectionElapsedLog, [String(s.currentSectionId)]: elapsed },
           currentSectionId: sectionId,
           kmInSection: 0,
-          sectionStartedAt: s.status === "running" ? Date.now() : Date.now(),
+          sectionStartedAt: Date.now(),
           sectionPausedMs: 0,
           pausedAt: s.status === "paused" ? Date.now() : null,
           lastGpsLat: null,
@@ -67,9 +74,12 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
     });
   }, [sectionId]);
 
-  /** GPS 累距 → 推進度 */
+  /** GPS：認路進度／累距／自動切段 */
   useEffect(() => {
-    if (session.status !== "running" || !session.gpsOn || !session.gpsFollow || !geo.fix) return;
+    if (session.status !== "running" || !session.gpsOn || !geo.fix) {
+      if (!session.gpsOn) setTrackMatch(null);
+      return;
+    }
     if (geo.fix.at === lastFixAt.current) return;
     lastFixAt.current = geo.fix.at;
 
@@ -79,31 +89,69 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
       accuracyM: geo.fix.accuracyM,
       at: geo.fix.at,
     };
+    const match = nearestOnTrack(sample.lat, sample.lng);
+    setTrackMatch(match);
+
+    if (!session.gpsFollow) {
+      setSession((s) => ({ ...s, lastGpsLat: sample.lat, lastGpsLng: sample.lng }));
+      return;
+    }
+
+    const pendingSwitch = { id: null as number | null };
 
     setSession((s) => {
       if (s.status !== "running" || !s.gpsOn || !s.gpsFollow) return s;
+
       const prev =
         s.lastGpsLat != null && s.lastGpsLng != null
           ? { lat: s.lastGpsLat, lng: s.lastGpsLng, accuracyM: null, at: 0 }
           : null;
       const step = gpsStepKm(prev, sample);
-      const cap = currentSectionKmCap(s);
-      let kmInSection = s.kmInSection;
       let gpsKmTotal = s.gpsKmTotal;
-      if (step.addKm > 0) {
-        kmInSection = Math.min(cap, kmInSection + step.addKm);
-        gpsKmTotal += step.addKm;
-      }
-      if (!step.acceptAsLast) return s;
-      return {
+      if (step.addKm > 0) gpsKmTotal += step.addKm;
+
+      const lastLat = step.acceptAsLast || !prev ? sample.lat : s.lastGpsLat;
+      const lastLng = step.acceptAsLast || !prev ? sample.lng : s.lastGpsLng;
+
+      let next: LiveSession = {
         ...s,
-        kmInSection,
         gpsKmTotal,
-        lastGpsLat: sample.lat,
-        lastGpsLng: sample.lng,
+        lastGpsLat: lastLat,
+        lastGpsLng: lastLng,
       };
+
+      if (!match.offTrack) {
+        const inRange = match.sectionId >= s.startSectionId && match.sectionId <= s.endSectionId;
+        if (inRange && s.autoSection && match.sectionId !== s.currentSectionId) {
+          const elapsed = elapsedInSectionMs(s, Date.now());
+          pendingSwitch.id = match.sectionId;
+          next = {
+            ...next,
+            sectionElapsedLog: { ...s.sectionElapsedLog, [String(s.currentSectionId)]: elapsed },
+            currentSectionId: match.sectionId,
+            kmInSection: match.kmInSection,
+            sectionStartedAt: Date.now(),
+            sectionPausedMs: 0,
+            pausedAt: null,
+          };
+        } else if (match.sectionId === s.currentSectionId || (inRange && !s.autoSection)) {
+          if (match.sectionId === s.currentSectionId) {
+            next = { ...next, kmInSection: match.kmInSection };
+          }
+        }
+      } else if (step.addKm > 0) {
+        const cap = currentSectionKmCap(s);
+        next = { ...next, kmInSection: Math.min(cap, s.kmInSection + step.addKm) };
+      }
+
+      return next;
     });
-  }, [geo.fix, session.status, session.gpsOn, session.gpsFollow]);
+
+    if (pendingSwitch.id != null) {
+      skipSectionSync.current = true;
+      onSectionChange(pendingSwitch.id);
+    }
+  }, [geo.fix, session.status, session.gpsOn, session.gpsFollow, session.autoSection, onSectionChange]);
 
   const section = SECTIONS[session.currentSectionId - 1];
   const kmCap = currentSectionKmCap(session);
@@ -123,11 +171,6 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
       }),
     [session, elapsed, now],
   );
-
-  const nearest = useMemo(() => {
-    if (!geo.fix) return null;
-    return nearestCheckpoint(geo.fix.lat, geo.fix.lng);
-  }, [geo.fix]);
 
   const patch = (fn: (s: LiveSession) => LiveSession) => setSession(fn);
 
@@ -215,9 +258,19 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
     onSectionChange(nextId);
   };
 
-  const applySuggestedSection = () => {
-    if (!nearest) return;
-    onSectionChange(nearest.suggestedSectionId);
+  const applyTrackSection = () => {
+    if (!trackMatch || trackMatch.offTrack) return;
+    const id = Math.min(session.endSectionId, Math.max(session.startSectionId, trackMatch.sectionId));
+    skipSectionSync.current = true;
+    patch((s) => ({
+      ...s,
+      currentSectionId: id,
+      kmInSection: trackMatch.sectionId === id ? trackMatch.kmInSection : 0,
+      sectionStartedAt: Date.now(),
+      sectionPausedMs: 0,
+      pausedAt: s.status === "paused" ? Date.now() : null,
+    }));
+    onSectionChange(id);
   };
 
   const statusLabel =
@@ -488,7 +541,7 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
 
           <div className="live-gps card">
             <div className="live-gps-row">
-              <div className="label">GPS</div>
+              <div className="label">GPS · 認路</div>
               <button
                 type="button"
                 className={`live-toggle ${session.gpsOn ? "on" : ""}`}
@@ -505,6 +558,17 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
                 {session.gpsOn ? "開" : "關"}
               </button>
             </div>
+            <div className="live-gps-row live-gps-sub">
+              <span className="live-help">自動切段</span>
+              <button
+                type="button"
+                className={`live-toggle ${session.autoSection ? "on" : ""}`}
+                disabled={!session.gpsOn}
+                onClick={() => patch((s) => ({ ...s, autoSection: !s.autoSection }))}
+              >
+                {session.autoSection ? "開" : "關"}
+              </button>
+            </div>
             {session.gpsOn ? (
               geo.error ? (
                 <p className="live-help danger">{geo.error} · 可用進度條繼續練</p>
@@ -517,18 +581,30 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
                     {speedLabel ? ` · ${speedLabel}` : ""}
                   </p>
                   <p className="live-help">今日 GPS 累距 {session.gpsKmTotal.toFixed(2)} km</p>
-                  {nearest ? (
-                    <div className="live-nearest">
-                      <div className="k">最近檢查站（約略）</div>
-                      <strong>
-                        {nearest.checkpoint.name} · {nearest.distanceKm < 1 ? `${Math.round(nearest.distanceKm * 1000)} m` : `${nearest.distanceKm.toFixed(1)} km`}
-                      </strong>
-                      {nearest.suggestedSectionId !== session.currentSectionId ? (
-                        <button type="button" className="live-link" onClick={applySuggestedSection}>
-                          建議切去第 {nearest.suggestedSectionId} 段
-                        </button>
+                  {trackMatch ? (
+                    <div className={`live-nearest ${trackMatch.offTrack ? "off" : "on-track"}`}>
+                      {trackMatch.offTrack ? (
+                        <>
+                          <div className="k">偏離路線</div>
+                          <strong className="danger-text">{formatOffTrack(trackMatch.distanceKm)}</strong>
+                          <p className="live-help">稀疏路線約略判斷；可人手轉段或拖進度</p>
+                        </>
                       ) : (
-                        <p className="live-help">同而家段一致</p>
+                        <>
+                          <div className="k">路線鎖定</div>
+                          <strong>
+                            第 {trackMatch.sectionId} 段 · 段內 {trackMatch.kmInSection.toFixed(1)} km
+                            {trackMatch.label ? ` · ${trackMatch.label}` : ""}
+                            {` · 離線 ${trackMatch.distanceKm < 1 ? `${Math.round(trackMatch.distanceKm * 1000)}m` : `${trackMatch.distanceKm.toFixed(1)}km`}`}
+                          </strong>
+                          {trackMatch.sectionId !== session.currentSectionId ? (
+                            <button type="button" className="live-link" onClick={applyTrackSection}>
+                              切去認到嘅第 {trackMatch.sectionId} 段
+                            </button>
+                          ) : (
+                            <p className="live-help">同而家段一致 · 進度跟路線投影</p>
+                          )}
+                        </>
                       )}
                     </div>
                   ) : null}
@@ -537,7 +613,7 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
                 <p className="live-help">定位中…</p>
               )
             ) : (
-              <p className="live-help">關住慳電；開咗可自動累距推進度，並提示最近 CP</p>
+              <p className="live-help">關住慳電；開咗可認路、自動切段、偏離提示</p>
             )}
           </div>
 

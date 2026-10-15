@@ -1031,6 +1031,22 @@ button {
   border-top: 1px solid var(--line);
 }
 
+.live-nearest.off {
+  padding: 10px;
+  margin-top: 10px;
+  border-radius: 12px;
+  border: 1px solid #5a3228;
+  background: rgba(90, 50, 40, 0.25);
+}
+
+.live-nearest.on-track {
+  padding: 10px;
+  margin-top: 10px;
+  border-radius: 12px;
+  border: 1px solid #2f5e42;
+  background: rgba(61, 122, 85, 0.15);
+}
+
 .live-nearest .k {
   display: block;
   color: var(--muted);
@@ -1042,4 +1058,12 @@ button {
   display: block;
   font-size: 0.9rem;
   line-height: 1.4;
+}
+
+.danger-text {
+  color: var(--blaze);
+}
+
+.live-gps-sub {
+  margin-top: 6px;
 }
