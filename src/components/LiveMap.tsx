@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { ROUTE_TRACK } from "../data/routeTrack";
@@ -23,6 +23,9 @@ type Props = {
 const LOCAL_TILES = "/map-tiles/{z}/{x}/{y}.png";
 const MAX_NATIVE_ZOOM = 14;
 
+const COLOR_ROUTE = "#5cb87a";
+const COLOR_DONE = "#c9a66b";
+
 export function LiveMap({
   currentSectionId,
   startSectionId,
@@ -36,11 +39,33 @@ export function LiveMap({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const dayLayerRef = useRef<L.Polyline | null>(null);
-  const sectionLayerRef = useRef<L.Polyline | null>(null);
+  const routeLayerRef = useRef<L.Polyline | null>(null);
   const doneLayerRef = useRef<L.Polyline | null>(null);
   const posMarkerRef = useRef<L.CircleMarker | null>(null);
   const snapMarkerRef = useRef<L.CircleMarker | null>(null);
   const fittedKeyRef = useRef<string | null>(null);
+  const [mapGen, setMapGen] = useState(0);
+
+  const alongKm = useMemo(() => {
+    if (!training) return progressKm;
+    if (trackMatch && !trackMatch.offTrack && trackMatch.kmAlong != null) {
+      return trackMatch.kmAlong;
+    }
+    return progressKm;
+  }, [training, trackMatch, progressKm]);
+
+  const outEndKm = useMemo(() => {
+    if (!training) return 0;
+    return training.track.filter((p) => p.leg === "out").at(-1)?.kmAlong ?? training.totalKm / 2;
+  }, [training]);
+
+  /** 方案 B：過轉折後當回程 */
+  const onBack = useMemo(() => {
+    if (!training) return false;
+    if (trackMatch && !trackMatch.offTrack && trackMatch.leg === "back") return true;
+    if (trackMatch && !trackMatch.offTrack && trackMatch.leg === "out") return false;
+    return alongKm > outEndKm + 0.05;
+  }, [training, trackMatch, alongKm, outEndKm]);
 
   const dayLatLngs = useMemo(() => {
     if (training) return [] as L.LatLngExpression[];
@@ -51,23 +76,37 @@ export function LiveMap({
     );
   }, [startSectionId, endSectionId, training]);
 
-  const sectionLatLngs = useMemo(() => {
+  /** 而家顯示嘅計劃線：去程淨 out；回程收起 out，淨 back */
+  const routeLatLngs = useMemo(() => {
+    if (!training) {
+      return ROUTE_TRACK.filter((p) => p.sectionId === currentSectionId).map(
+        (p) => [p.lat, p.lng] as L.LatLngExpression,
+      );
+    }
+    const leg = onBack ? "back" : "out";
+    return training.track
+      .filter((p) => p.leg === leg)
+      .map((p) => [p.lat, p.lng] as L.LatLngExpression);
+  }, [training, currentSectionId, onBack]);
+
+  /** fit 成條來回一次，轉折唔跳 zoom */
+  const fitLatLngs = useMemo(() => {
     if (training) {
       return training.track.map((p) => [p.lat, p.lng] as L.LatLngExpression);
     }
-    return ROUTE_TRACK.filter((p) => p.sectionId === currentSectionId).map(
-      (p) => [p.lat, p.lng] as L.LatLngExpression,
-    );
-  }, [currentSectionId, training]);
+    return routeLatLngs;
+  }, [training, routeLatLngs]);
 
   const doneLatLngs = useMemo(() => {
     if (training) {
-      const along =
-        trackMatch && !trackMatch.offTrack && trackMatch.kmAlong != null
-          ? trackMatch.kmAlong
-          : progressKm;
+      if (onBack) {
+        // 回程已行：淨回程段由轉折行到而家
+        return training.track
+          .filter((p) => p.leg === "back" && p.kmAlong <= alongKm + 0.05)
+          .map((p) => [p.lat, p.lng] as L.LatLngExpression);
+      }
       return training.track
-        .filter((p) => p.kmAlong <= along + 0.05)
+        .filter((p) => p.leg === "out" && p.kmAlong <= alongKm + 0.05)
         .map((p) => [p.lat, p.lng] as L.LatLngExpression);
     }
     const start = Math.min(startSectionId, endSectionId);
@@ -78,19 +117,52 @@ export function LiveMap({
       if (!trackMatch || trackMatch.sectionId !== currentSectionId) return p.kmInSection <= 0;
       return p.kmInSection <= trackMatch.kmInSection + 0.05;
     }).map((p) => [p.lat, p.lng] as L.LatLngExpression);
-  }, [startSectionId, endSectionId, currentSectionId, trackMatch, training, progressKm]);
+  }, [
+    training,
+    onBack,
+    alongKm,
+    startSectionId,
+    endSectionId,
+    currentSectionId,
+    trackMatch,
+  ]);
 
   const fitKey = training ? `t:${training.id}` : `s:${currentSectionId}`;
 
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
+    const el = containerRef.current;
+    if (!el || mapRef.current) return;
 
-    const map = L.map(containerRef.current, {
-      zoomControl: false,
-      attributionControl: true,
-      maxZoom: MAX_NATIVE_ZOOM + 1,
-      minZoom: 10,
-    });
+    const staleId = (el as unknown as { _leaflet_id?: number })._leaflet_id;
+    if (staleId != null) {
+      el.innerHTML = "";
+      delete (el as unknown as { _leaflet_id?: number })._leaflet_id;
+    }
+
+    let map: L.Map;
+    try {
+      map = L.map(el, {
+        zoomControl: false,
+        attributionControl: true,
+        maxZoom: MAX_NATIVE_ZOOM + 1,
+        minZoom: 10,
+      });
+    } catch (err) {
+      console.error("LiveMap init failed", err);
+      el.innerHTML = "";
+      delete (el as unknown as { _leaflet_id?: number })._leaflet_id;
+      try {
+        map = L.map(el, {
+          zoomControl: false,
+          attributionControl: true,
+          maxZoom: MAX_NATIVE_ZOOM + 1,
+          minZoom: 10,
+        });
+      } catch (err2) {
+        console.error("LiveMap retry failed", err2);
+        return;
+      }
+    }
 
     L.control.zoom({ position: "topright" }).addTo(map);
 
@@ -108,15 +180,19 @@ export function LiveMap({
       weight: 3,
       opacity: 0.35,
     }).addTo(map);
-    const section = L.polyline([], {
-      color: "#5cb87a",
-      weight: 5,
+    const route = L.polyline([], {
+      color: COLOR_ROUTE,
+      weight: 6,
       opacity: 0.95,
+      lineCap: "round",
+      lineJoin: "round",
     }).addTo(map);
     const done = L.polyline([], {
-      color: "#c9a66b",
+      color: COLOR_DONE,
       weight: 5,
       opacity: 0.95,
+      lineCap: "round",
+      lineJoin: "round",
     }).addTo(map);
     const pos = L.circleMarker([22.4, 114.2], {
       radius: 8,
@@ -127,15 +203,15 @@ export function LiveMap({
     });
     const snap = L.circleMarker([22.4, 114.2], {
       radius: 5,
-      color: "#c9a66b",
+      color: COLOR_DONE,
       weight: 1,
-      fillColor: "#c9a66b",
+      fillColor: COLOR_DONE,
       fillOpacity: 0.9,
     });
 
     mapRef.current = map;
     dayLayerRef.current = day;
-    sectionLayerRef.current = section;
+    routeLayerRef.current = route;
     doneLayerRef.current = done;
     posMarkerRef.current = pos;
     snapMarkerRef.current = snap;
@@ -143,43 +219,57 @@ export function LiveMap({
     const ro = new ResizeObserver(() => {
       map.invalidateSize({ animate: false });
     });
-    ro.observe(containerRef.current);
+    ro.observe(el);
+
+    setMapGen((n) => n + 1);
 
     return () => {
       ro.disconnect();
-      map.remove();
+      try {
+        map.remove();
+      } catch {
+        /* ignore */
+      }
       mapRef.current = null;
+      dayLayerRef.current = null;
+      routeLayerRef.current = null;
+      doneLayerRef.current = null;
+      posMarkerRef.current = null;
+      snapMarkerRef.current = null;
       fittedKeyRef.current = null;
     };
   }, []);
 
   useEffect(() => {
-    dayLayerRef.current?.setLatLngs(dayLatLngs);
-  }, [dayLatLngs]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    const section = sectionLayerRef.current;
-    if (!map || !section) return;
-    section.setLatLngs(sectionLatLngs);
-    if (sectionLatLngs.length >= 2 && fittedKeyRef.current !== fitKey) {
-      fittedKeyRef.current = fitKey;
-      map.fitBounds(L.latLngBounds(sectionLatLngs as L.LatLngTuple[]), {
-        padding: [28, 28],
-        maxZoom: 14,
-      });
+    if (!mapGen) return;
+    try {
+      dayLayerRef.current?.setLatLngs(dayLatLngs);
+      routeLayerRef.current?.setLatLngs(routeLatLngs);
+      doneLayerRef.current?.setLatLngs(doneLatLngs);
+      routeLayerRef.current?.bringToFront();
+      doneLayerRef.current?.bringToFront();
+    } catch (err) {
+      console.error("LiveMap route update failed", err);
     }
-  }, [sectionLatLngs, fitKey]);
+  }, [mapGen, dayLatLngs, routeLatLngs, doneLatLngs]);
 
   useEffect(() => {
-    doneLayerRef.current?.setLatLngs(doneLatLngs);
-  }, [doneLatLngs]);
+    if (!mapGen) return;
+    const map = mapRef.current;
+    if (!map || fitLatLngs.length < 2) return;
+    if (fittedKeyRef.current === fitKey) return;
+    fittedKeyRef.current = fitKey;
+    map.fitBounds(L.latLngBounds(fitLatLngs as L.LatLngTuple[]), {
+      padding: [28, 28],
+      maxZoom: 14,
+    });
+  }, [mapGen, fitLatLngs, fitKey]);
 
   useEffect(() => {
     const map = mapRef.current;
     const pos = posMarkerRef.current;
     const snap = snapMarkerRef.current;
-    if (!map || !pos || !snap) return;
+    if (!mapGen || !map || !pos || !snap) return;
 
     if (geo) {
       pos.setLatLng([geo.lat, geo.lng]);
@@ -193,13 +283,17 @@ export function LiveMap({
     } else if (map.hasLayer(snap)) {
       map.removeLayer(snap);
     }
-  }, [geo, trackMatch, follow]);
+  }, [mapGen, geo, trackMatch, follow]);
 
   return (
     <div className="live-map-wrap">
       <div ref={containerRef} className="live-map" role="img" aria-label="練行路線地圖" />
       <div className="live-map-legend">
-        <span className="leg-route">{training ? "來回" : "本段"}</span>
+        {training ? (
+          <span className="leg-route">{onBack ? "回程" : "去程"}</span>
+        ) : (
+          <span className="leg-route">本段</span>
+        )}
         <span className="leg-done">已行</span>
         <span className="leg-pos">GPS</span>
       </div>

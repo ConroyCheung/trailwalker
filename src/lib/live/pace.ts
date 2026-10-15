@@ -172,6 +172,10 @@ export function buildElevCodeEtaSnapshot(opts: {
   currentSectionId: number;
   fromSectionId: number;
   toSectionId: number;
+  /** 起段內起點 kmAt（預設 0） */
+  fromKmAt?: number;
+  /** 止段內終點 kmAt（預設該段終） */
+  toKmAt?: number;
   kmInSection: number;
   elapsedInCurrentMs: number;
   nowTs: number;
@@ -181,6 +185,8 @@ export function buildElevCodeEtaSnapshot(opts: {
     currentSectionId,
     fromSectionId,
     toSectionId,
+    fromKmAt = 0,
+    toKmAt,
     kmInSection,
     elapsedInCurrentMs,
     nowTs,
@@ -204,6 +210,7 @@ export function buildElevCodeEtaSnapshot(opts: {
 
   const start = Math.max(1, Math.min(fromSectionId, toSectionId));
   const end = Math.min(10, Math.max(fromSectionId, toSectionId));
+  const endCap = toKmAt ?? SECTIONS[end - 1]?.km ?? 0;
 
   type ElevWp = {
     sectionId: number;
@@ -218,7 +225,9 @@ export function buildElevCodeEtaSnapshot(opts: {
     const s = SECTIONS[id - 1];
     if (!s) continue;
     for (const n of s.elevCode) {
-      if (n.kmAt <= 1e-6) continue; // 起點唔當抵達
+      if (n.kmAt <= 1e-6) continue; // 段起點唔當抵達
+      if (id === start && n.kmAt <= fromKmAt + 0.05) continue;
+      if (id === end && n.kmAt > endCap + 0.05) continue;
       if (id === currentSectionId && n.kmAt <= km + 0.05) continue;
       waypoints.push({
         sectionId: id,

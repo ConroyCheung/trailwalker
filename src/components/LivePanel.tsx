@@ -1,6 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  compareElevPick,
+  elevPickKey,
+  elevPickLabel,
+  elevRangeKm,
+  listElevPicks,
+  listOabTurnPicks,
+  parseElevPickKey,
+} from "../data/elevPicks";
 import { SECTIONS } from "../data/sections";
-import { getTraining, TRAININGS, trainingRaceKm } from "../data/trainings";
+import {
+  DEFAULT_OAB_TRAINING_ID,
+  getTraining,
+  makeOabTraining,
+  trainingRaceKm,
+} from "../data/trainings";
 import { useGeolocation } from "../hooks/useGeolocation";
 import { useNow } from "../hooks/useNow";
 import { formatSpeedKmh, gpsStepKm } from "../lib/live/geo";
@@ -21,6 +35,7 @@ import {
   elapsedInSectionMs,
   formatTimeInput,
   loadLiveSession,
+  normalizeLiveSession,
   plannedStartTimestamp,
   saveLiveSession,
   type LiveSession,
@@ -41,7 +56,14 @@ type Props = {
 const ETA_USER_PAUSE_MS = 60_000;
 
 export function LivePanel({ sectionId, onSectionChange }: Props) {
-  const [session, setSession] = useState<LiveSession>(() => loadLiveSession());
+  const [session, setSessionRaw] = useState<LiveSession>(() => normalizeLiveSession(loadLiveSession()));
+  const setSession = (update: LiveSession | ((prev: LiveSession) => LiveSession)) => {
+    setSessionRaw((prev) => {
+      const base = normalizeLiveSession(prev);
+      const next = typeof update === "function" ? update(base) : update;
+      return normalizeLiveSession(next);
+    });
+  };
   const [trackMatch, setTrackMatch] = useState<TrackMatch | null>(null);
   /** 人手 scroll ETA 後，用來觸發 1 分鐘後再 auto-follow */
   const [etaFollowNonce, setEtaFollowNonce] = useState(0);
@@ -253,11 +275,64 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
       currentSectionId: session.currentSectionId,
       fromSectionId: session.startSectionId,
       toSectionId: session.endSectionId,
+      fromKmAt: session.startKmAt,
+      toKmAt: session.endKmAt,
       kmInSection: session.kmInSection,
       elapsedInCurrentMs: etaElapsed,
       nowTs: etaNowTs,
     });
   }, [session, elapsed, now, training]);
+
+  const elevPicks = useMemo(() => listElevPicks(), []);
+  const startElevKey = elevPickKey(session.startSectionId, session.startKmAt);
+  const endElevKey = elevPickKey(session.endSectionId, session.endKmAt);
+  const raceRangeKm = elevRangeKm(
+    session.startSectionId,
+    session.startKmAt,
+    session.endSectionId,
+    session.endKmAt,
+  );
+  const oabEnabled = Boolean(training);
+
+  /** 由而家起／止地形組來回；跨段則收束到起段並揀合理轉折 */
+  const syncOabFromRange = (s: LiveSession): LiveSession => {
+    const sectionId = s.startSectionId;
+    let startKmAt = s.startKmAt;
+    let turnKmAt = s.endSectionId === sectionId ? s.endKmAt : s.startKmAt;
+
+    let t = makeOabTraining(sectionId, turnKmAt, startKmAt);
+    if (!t) {
+      const highs = listOabTurnPicks().filter(
+        (p) => p.sectionId === sectionId && p.kmAt > startKmAt + 0.3,
+      );
+      for (const h of highs) {
+        t = makeOabTraining(sectionId, h.kmAt, startKmAt);
+        if (t) {
+          turnKmAt = h.kmAt;
+          break;
+        }
+      }
+    }
+    if (!t) {
+      t = getTraining(DEFAULT_OAB_TRAINING_ID);
+      if (!t) return { ...s, trainingId: null, autoSection: true };
+      startKmAt = 0;
+      turnKmAt = t.turnRaceKm;
+    }
+
+    return {
+      ...s,
+      trainingId: t.id,
+      trainingTargetHours: t.defaultHours,
+      currentSectionId: t.raceSectionId,
+      startSectionId: t.raceSectionId,
+      endSectionId: t.raceSectionId,
+      startKmAt,
+      endKmAt: turnKmAt,
+      autoSection: false,
+      kmInSection: 0,
+    };
+  };
 
   const patch = (fn: (s: LiveSession) => LiveSession) => setSession(fn);
 
@@ -265,6 +340,7 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
   const enterPractice = () => {
     const active = getTraining(session.trainingId);
     const startId = active ? active.raceSectionId : session.startSectionId;
+    const startKm = active ? 0 : session.startKmAt;
     patch((s) => ({
       ...s,
       status: "ready",
@@ -277,7 +353,7 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
       startSectionId: active ? startId : s.startSectionId,
       endSectionId: active ? startId : s.endSectionId,
       autoSection: active ? false : s.autoSection,
-      kmInSection: 0,
+      kmInSection: startKm,
       lastGpsLat: null,
       lastGpsLng: null,
       gpsKmTotal: 0,
@@ -626,48 +702,6 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
       {session.status === "idle" || session.status === "ended" ? (
         <div className="live-setup card">
           <div className="live-field">
-            <span className="live-label">練習類型</span>
-            <div className="live-range">
-              <select
-                value={session.trainingId ?? "race"}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (v === "race") {
-                    patch((s) => ({
-                      ...s,
-                      trainingId: null,
-                      autoSection: true,
-                      kmInSection: 0,
-                    }));
-                    return;
-                  }
-                  const t = getTraining(v);
-                  if (!t) return;
-                  patch((s) => ({
-                    ...s,
-                    trainingId: t.id,
-                    trainingTargetHours: t.defaultHours,
-                    currentSectionId: t.raceSectionId,
-                    startSectionId: t.raceSectionId,
-                    endSectionId: t.raceSectionId,
-                    autoSection: false,
-                    kmInSection: 0,
-                  }));
-                  onSectionChange(t.raceSectionId);
-                }}
-              >
-                <option value="race">OTW 段範圍</option>
-                {TRAININGS.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} · {t.totalKm.toFixed(1)} km
-                  </option>
-                ))}
-              </select>
-            </div>
-            {training ? <p className="live-help">{training.blurb}</p> : null}
-          </div>
-
-          <div className="live-field">
             <label htmlFor="live-start-time">練習開始時間</label>
             <div className="live-target-row">
               <input
@@ -697,10 +731,12 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
             <p className="live-help">預計抵達會用呢個時間做起點（未撳開始前）</p>
           </div>
 
-          {training ? (
-            <div className="live-field">
-              <label htmlFor="live-training-target">練行目標用時</label>
-              <div className="live-target-row">
+          <div className="live-field">
+            <label htmlFor={oabEnabled ? "live-training-target" : "live-target"}>
+              {oabEnabled ? "練行目標用時" : "全場目標完成時間"}
+            </label>
+            <div className="live-target-row">
+              {oabEnabled ? (
                 <input
                   id="live-training-target"
                   type="number"
@@ -711,103 +747,152 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
                   onChange={(e) =>
                     patch((s) => ({
                       ...s,
-                      trainingTargetHours: Number(e.target.value) || training.defaultHours,
+                      trainingTargetHours:
+                        Number(e.target.value) || training?.defaultHours || 1.5,
                     }))
                   }
                 />
-                <span>小時</span>
-              </div>
-              <p className="live-help">
-                去程上頂 ≈ {(training.totalKm / 2).toFixed(1)} km · 來回 {training.totalKm.toFixed(1)} km
-              </p>
+              ) : (
+                <input
+                  id="live-target"
+                  type="number"
+                  min={20}
+                  max={48}
+                  step={0.5}
+                  value={session.targetHours}
+                  onChange={(e) =>
+                    patch((s) => ({
+                      ...s,
+                      targetHours: Number(e.target.value) || DEFAULT_TARGET_HOURS,
+                    }))
+                  }
+                />
+              )}
+              <span>小時</span>
             </div>
-          ) : (
-            <>
-              <div className="live-field">
-                <label htmlFor="live-target">全場目標完成時間</label>
-                <div className="live-target-row">
-                  <input
-                    id="live-target"
-                    type="number"
-                    min={20}
-                    max={48}
-                    step={0.5}
-                    value={session.targetHours}
-                    onChange={(e) =>
-                      patch((s) => ({
-                        ...s,
-                        targetHours: Number(e.target.value) || DEFAULT_TARGET_HOURS,
-                      }))
-                    }
-                  />
-                  <span>小時</span>
-                </div>
-                <p className="live-help">按各段 hours 權重拆時間（權重總和約 34.5h）</p>
-              </div>
+            <p className="live-help">
+              {oabEnabled && training
+                ? `去程 ≈ ${(training.totalKm / 2).toFixed(1)} km · 來回 ${training.totalKm.toFixed(1)} km`
+                : "按各段 hours 權重拆時間（權重總和約 34.5h）"}
+            </p>
+          </div>
 
-              <div className="live-field">
-                <span className="live-label">今日練習範圍</span>
-                <div className="live-range">
-                  <select
-                    value={session.startSectionId}
-                    onChange={(e) => {
-                      const id = Number(e.target.value);
-                      patch((s) => ({
-                        ...s,
-                        startSectionId: id,
-                        currentSectionId: id,
-                        endSectionId: Math.max(id, s.endSectionId),
-                        kmInSection: 0,
-                      }));
-                      onSectionChange(id);
-                    }}
-                  >
-                    {SECTIONS.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        起 · 第 {s.id} 段
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={session.endSectionId}
-                    onChange={(e) => {
-                      const id = Number(e.target.value);
-                      patch((s) => ({
-                        ...s,
-                        endSectionId: id,
-                        startSectionId: Math.min(id, s.startSectionId),
-                      }));
-                    }}
-                  >
-                    {SECTIONS.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        止 · 第 {s.id} 段
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+          <div className="live-field">
+            <div className="live-label-row">
+              <span className="live-label">今日練習範圍 · 地形細段</span>
+              <button
+                type="button"
+                className={`live-toggle ${oabEnabled ? "on" : ""}`}
+                aria-pressed={oabEnabled}
+                title={oabEnabled ? "關閉來回" : "開啟來回"}
+                onClick={() => {
+                  if (oabEnabled) {
+                    patch((s) => ({
+                      ...s,
+                      trainingId: null,
+                      autoSection: true,
+                      kmInSection: s.startKmAt,
+                    }));
+                    return;
+                  }
+                  const next = syncOabFromRange(session);
+                  patch(() => next);
+                  onSectionChange(next.currentSectionId);
+                }}
+              >
+                來回
+              </button>
+            </div>
+            <div className="live-range live-range--stack">
+              <select
+                value={startElevKey}
+                onChange={(e) => {
+                  const parsed = parseElevPickKey(e.target.value);
+                  if (!parsed) return;
+                  let next: LiveSession = {
+                    ...session,
+                    startSectionId: parsed.sectionId,
+                    startKmAt: parsed.kmAt,
+                    currentSectionId: parsed.sectionId,
+                    kmInSection: oabEnabled ? 0 : parsed.kmAt,
+                  };
+                  const start = { sectionId: parsed.sectionId, kmAt: parsed.kmAt };
+                  const end = { sectionId: session.endSectionId, kmAt: session.endKmAt };
+                  if (compareElevPick(start, end) > 0) {
+                    next.endSectionId = parsed.sectionId;
+                    next.endKmAt = parsed.kmAt;
+                  }
+                  if (oabEnabled) next = syncOabFromRange(next);
+                  patch(() => next);
+                  onSectionChange(next.currentSectionId);
+                }}
+              >
+                {elevPicks.map((p) => (
+                  <option key={`start-${p.key}`} value={p.key}>
+                    起 · {elevPickLabel(p)}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={endElevKey}
+                onChange={(e) => {
+                  const parsed = parseElevPickKey(e.target.value);
+                  if (!parsed) return;
+                  let next: LiveSession = {
+                    ...session,
+                    endSectionId: parsed.sectionId,
+                    endKmAt: parsed.kmAt,
+                  };
+                  const start = { sectionId: session.startSectionId, kmAt: session.startKmAt };
+                  const end = { sectionId: parsed.sectionId, kmAt: parsed.kmAt };
+                  if (compareElevPick(start, end) > 0) {
+                    next.startSectionId = parsed.sectionId;
+                    next.startKmAt = parsed.kmAt;
+                    next.currentSectionId = parsed.sectionId;
+                    next.kmInSection = oabEnabled ? 0 : parsed.kmAt;
+                  }
+                  if (oabEnabled) next = syncOabFromRange(next);
+                  patch(() => next);
+                  onSectionChange(next.currentSectionId);
+                }}
+              >
+                {elevPicks.map((p) => (
+                  <option key={`end-${p.key}`} value={p.key}>
+                    {oabEnabled ? "轉" : "止"} · {elevPickLabel(p)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="live-help">
+              {oabEnabled && training
+                ? training.blurb
+                : `範圍約 ${raceRangeKm.toFixed(1)} km · 用地形密碼細段揀起止`}
+            </p>
+          </div>
 
-              <div className="live-preview">
-                <div className="label">今日預計分配</div>
-                <ul>
-                  {SECTIONS.filter((s) => s.id >= session.startSectionId && s.id <= session.endSectionId).map(
-                    (s) => {
-                      const h = allocatedHours(session.targetHours, s.id);
-                      return (
-                        <li key={s.id}>
-                          <span>
-                            第 {s.id} 段 · {s.km} km
-                          </span>
-                          <span>{h.toFixed(1)} h</span>
-                        </li>
-                      );
-                    },
-                  )}
-                </ul>
-              </div>
-            </>
-          )}
+          {!oabEnabled ? (
+            <div className="live-preview">
+              <div className="label">今日預計分配</div>
+              <ul>
+                {SECTIONS.filter((s) => s.id >= session.startSectionId && s.id <= session.endSectionId).map(
+                  (s) => {
+                    const h = allocatedHours(session.targetHours, s.id);
+                    const fromKm = s.id === session.startSectionId ? session.startKmAt : 0;
+                    const toKm = s.id === session.endSectionId ? session.endKmAt : s.km;
+                    const segKm = Math.max(0, toKm - fromKm);
+                    return (
+                      <li key={s.id}>
+                        <span>
+                          第 {s.id} 段 · {segKm.toFixed(1)} km
+                        </span>
+                        <span>{h.toFixed(1)} h</span>
+                      </li>
+                    );
+                  },
+                )}
+              </ul>
+            </div>
+          ) : null}
 
           <button className="live-primary" type="button" onClick={enterPractice}>
             {session.status === "ended" ? "再開一轉" : "進入練習"}

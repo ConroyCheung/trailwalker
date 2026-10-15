@@ -16,6 +16,8 @@ export function computeRemainKm(opts: {
   kmInSection: number;
   startSectionId: number;
   endSectionId: number;
+  startKmAt?: number;
+  endKmAt?: number;
   kmAt: number | null;
   trainingTotalKm?: number | null;
 }): RemainKm {
@@ -32,19 +34,24 @@ export function computeRemainKm(opts: {
   }
 
   const section = SECTIONS[opts.currentSectionId - 1];
-  const kmIn = Math.min(section.km, Math.max(0, opts.kmInSection));
-  const sectionRemainKm = Math.max(0, section.km - kmIn);
-
   const start = Math.min(opts.startSectionId, opts.endSectionId);
   const end = Math.max(opts.startSectionId, opts.endSectionId);
+  const startKmAt = Math.max(0, opts.startKmAt ?? 0);
+  const endKmAt = opts.endKmAt ?? SECTIONS[end - 1]?.km ?? 0;
+  const kmIn = Math.min(section.km, Math.max(0, opts.kmInSection));
+  const sectionCap =
+    opts.currentSectionId === end ? Math.min(section.km, endKmAt) : section.km;
+  const sectionRemainKm = Math.max(0, sectionCap - kmIn);
 
   let todayTotal = 0;
   let todayDone = 0;
   for (let id = start; id <= end; id++) {
     const s = SECTIONS[id - 1];
-    todayTotal += s.km;
-    if (id < opts.currentSectionId) todayDone += s.km;
-    else if (id === opts.currentSectionId) todayDone += kmIn;
+    const segStart = id === start ? startKmAt : 0;
+    const segEnd = id === end ? Math.min(s.km, endKmAt) : s.km;
+    todayTotal += Math.max(0, segEnd - segStart);
+    if (id < opts.currentSectionId) todayDone += Math.max(0, segEnd - segStart);
+    else if (id === opts.currentSectionId) todayDone += Math.max(0, kmIn - segStart);
   }
   const todayRemainKm = Math.max(0, todayTotal - todayDone);
 

@@ -1,5 +1,6 @@
+import { findElevPick } from "../../data/elevPicks";
 import { SECTIONS } from "../../data/sections";
-import { getTraining } from "../../data/trainings";
+import { DEFAULT_OAB_TRAINING_ID, getTraining } from "../../data/trainings";
 import { DEFAULT_TARGET_HOURS } from "./pace";
 
 const LIVE_KEY = "tw-live-v2";
@@ -25,6 +26,10 @@ export type LiveSession = {
   targetHours: number;
   startSectionId: number;
   endSectionId: number;
+  /** OTW：起點地形細段段內 kmAt */
+  startKmAt: number;
+  /** OTW：終點地形細段段內 kmAt（相對 endSectionId） */
+  endKmAt: number;
   currentSectionId: number;
   kmInSection: number;
   /** 本段開始時間戳；換段時重置 */
@@ -86,12 +91,20 @@ export function clampPlannedStartTime(v: unknown, fallback = formatTimeInput()):
   return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
 }
 
+function sectionEndKmAt(sectionId: number): number {
+  const s = SECTIONS[sectionId - 1];
+  if (!s) return 0;
+  return s.elevCode.at(-1)?.kmAt ?? s.km;
+}
+
 export function defaultLiveSession(sectionId = 1): LiveSession {
   const id = Math.min(10, Math.max(1, sectionId));
   return {
     targetHours: DEFAULT_TARGET_HOURS,
     startSectionId: id,
     endSectionId: 10,
+    startKmAt: 0,
+    endKmAt: sectionEndKmAt(10),
     currentSectionId: id,
     kmInSection: 0,
     sectionStartedAt: null,
@@ -114,40 +127,53 @@ export function defaultLiveSession(sectionId = 1): LiveSession {
   };
 }
 
+/** 確保新欄位齊（HMR／舊 localStorage／partial patch 都唔缺 startKmAt） */
+export function normalizeLiveSession(raw: Partial<LiveSession> | null | undefined): LiveSession {
+  const base = defaultLiveSession(raw?.currentSectionId ?? raw?.startSectionId ?? 1);
+  if (!raw) return base;
+  let trainingId =
+    typeof raw.trainingId === "string" && getTraining(raw.trainingId) ? raw.trainingId : null;
+  if (trainingId === "needle-hill-oab") trainingId = DEFAULT_OAB_TRAINING_ID;
+  const training = getTraining(trainingId);
+  const startSectionId = clampSection(raw.startSectionId ?? base.startSectionId);
+  const endSectionId = clampSection(raw.endSectionId ?? base.endSectionId);
+  const startKmAt = clampKmAt(startSectionId, raw.startKmAt ?? 0);
+  const endKmAt = clampKmAt(endSectionId, raw.endKmAt ?? sectionEndKmAt(endSectionId));
+  return {
+    ...base,
+    ...raw,
+    targetHours: clampTarget(raw.targetHours ?? base.targetHours),
+    startSectionId,
+    endSectionId,
+    startKmAt,
+    endKmAt,
+    currentSectionId: clampSection(raw.currentSectionId ?? base.currentSectionId),
+    kmInSection: Math.max(0, Number(raw.kmInSection) || 0),
+    sectionPausedMs: Math.max(0, Number(raw.sectionPausedMs) || 0),
+    practicePausedMs: Math.max(0, Number(raw.practicePausedMs) || 0),
+    gpsKmTotal: Math.max(0, Number(raw.gpsKmTotal) || 0),
+    gpsOn: Boolean(raw.gpsOn),
+    gpsFollow: raw.gpsFollow !== false,
+    autoSection: trainingId ? false : raw.autoSection !== false,
+    lastGpsLat: numOrNull(raw.lastGpsLat),
+    lastGpsLng: numOrNull(raw.lastGpsLng),
+    sectionElapsedLog:
+      raw.sectionElapsedLog && typeof raw.sectionElapsedLog === "object" ? raw.sectionElapsedLog : {},
+    summary: raw.summary ?? null,
+    status: isStatus(raw.status) ? raw.status : "idle",
+    trainingId,
+    trainingTargetHours: clampTrainingHours(
+      raw.trainingTargetHours ?? training?.defaultHours ?? base.trainingTargetHours,
+    ),
+    plannedStartTime: clampPlannedStartTime(raw.plannedStartTime, base.plannedStartTime),
+  };
+}
+
 export function loadLiveSession(): LiveSession {
   try {
     const raw = localStorage.getItem(LIVE_KEY) ?? localStorage.getItem(LIVE_KEY_LEGACY);
     if (!raw) return defaultLiveSession();
-    const parsed = JSON.parse(raw) as Partial<LiveSession>;
-    const base = defaultLiveSession(parsed.currentSectionId ?? parsed.startSectionId ?? 1);
-    const trainingId =
-      typeof parsed.trainingId === "string" && getTraining(parsed.trainingId) ? parsed.trainingId : null;
-    const training = getTraining(trainingId);
-    return {
-      ...base,
-      ...parsed,
-      targetHours: clampTarget(parsed.targetHours ?? base.targetHours),
-      startSectionId: clampSection(parsed.startSectionId ?? base.startSectionId),
-      endSectionId: clampSection(parsed.endSectionId ?? base.endSectionId),
-      currentSectionId: clampSection(parsed.currentSectionId ?? base.currentSectionId),
-      kmInSection: Math.max(0, Number(parsed.kmInSection) || 0),
-      sectionPausedMs: Math.max(0, Number(parsed.sectionPausedMs) || 0),
-      practicePausedMs: Math.max(0, Number(parsed.practicePausedMs) || 0),
-      gpsKmTotal: Math.max(0, Number(parsed.gpsKmTotal) || 0),
-      gpsOn: Boolean(parsed.gpsOn),
-      gpsFollow: parsed.gpsFollow !== false,
-      autoSection: trainingId ? false : parsed.autoSection !== false,
-      lastGpsLat: numOrNull(parsed.lastGpsLat),
-      lastGpsLng: numOrNull(parsed.lastGpsLng),
-      sectionElapsedLog: parsed.sectionElapsedLog && typeof parsed.sectionElapsedLog === "object" ? parsed.sectionElapsedLog : {},
-      summary: parsed.summary ?? null,
-      status: isStatus(parsed.status) ? parsed.status : "idle",
-      trainingId,
-      trainingTargetHours: clampTrainingHours(
-        parsed.trainingTargetHours ?? training?.defaultHours ?? base.trainingTargetHours,
-      ),
-      plannedStartTime: clampPlannedStartTime(parsed.plannedStartTime, base.plannedStartTime),
-    };
+    return normalizeLiveSession(JSON.parse(raw) as Partial<LiveSession>);
   } catch {
     return defaultLiveSession();
   }
@@ -165,6 +191,29 @@ function clampSection(n: number): number {
   if (!Number.isFinite(n)) return 1;
   return Math.min(10, Math.max(1, Math.round(n)));
 }
+
+function clampKmAt(sectionId: number, kmAt: number): number {
+  const s = SECTIONS[sectionId - 1];
+  if (!s) return 0;
+  if (!Number.isFinite(kmAt)) return 0;
+  const max = sectionEndKmAt(sectionId);
+  const clamped = Math.min(max, Math.max(0, kmAt));
+  // 貼近最近地形節點，避免浮點／舊資料偏差
+  const hit = findElevPick(`${sectionId}:${clamped.toFixed(2)}`);
+  if (hit) return hit.kmAt;
+  let best = s.elevCode[0]?.kmAt ?? 0;
+  let bestD = Math.abs(best - clamped);
+  for (const n of s.elevCode) {
+    const d = Math.abs(n.kmAt - clamped);
+    if (d < bestD) {
+      best = n.kmAt;
+      bestD = d;
+    }
+  }
+  return best;
+}
+
+export { sectionEndKmAt };
 
 function clampTarget(h: number): number {
   if (!Number.isFinite(h)) return DEFAULT_TARGET_HOURS;

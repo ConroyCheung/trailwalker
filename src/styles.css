@@ -1075,6 +1075,22 @@ button.live-etas-count {
   font-weight: 700;
 }
 
+.live-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.live-label-row .live-label {
+  margin-bottom: 0;
+}
+
+.live-label-row .live-toggle {
+  flex-shrink: 0;
+}
+
 .live-target-row {
   display: flex;
   align-items: center;
@@ -1108,6 +1124,10 @@ button.live-etas-count {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+.live-range--stack {
+  grid-template-columns: 1fr;
 }
 
 .live-help {
