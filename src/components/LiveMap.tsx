@@ -140,7 +140,13 @@ export function LiveMap({
     posMarkerRef.current = pos;
     snapMarkerRef.current = snap;
 
+    const ro = new ResizeObserver(() => {
+      map.invalidateSize({ animate: false });
+    });
+    ro.observe(containerRef.current);
+
     return () => {
+      ro.disconnect();
       map.remove();
       mapRef.current = null;
       fittedKeyRef.current = null;

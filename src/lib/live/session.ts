@@ -5,7 +5,7 @@ import { DEFAULT_TARGET_HOURS } from "./pace";
 const LIVE_KEY = "tw-live-v2";
 const LIVE_KEY_LEGACY = "tw-live-v1";
 
-export type LiveStatus = "idle" | "running" | "paused" | "ended";
+export type LiveStatus = "idle" | "ready" | "running" | "paused" | "ended";
 
 export type LiveSummary = {
   endedAt: number;
@@ -138,7 +138,7 @@ function clampTarget(h: number): number {
 }
 
 function isStatus(v: unknown): v is LiveStatus {
-  return v === "idle" || v === "running" || v === "paused" || v === "ended";
+  return v === "idle" || v === "ready" || v === "running" || v === "paused" || v === "ended";
 }
 
 export function elapsedInSectionMs(session: LiveSession, nowTs: number): number {

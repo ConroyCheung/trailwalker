@@ -602,6 +602,27 @@ button {
   padding-bottom: 76px;
 }
 
+.app-live .panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 72px;
+}
+
+.app-live .panel > .live {
+  flex: 1;
+  min-height: 0;
+}
+
+.app-live .panel > .live:not(.live--practice) {
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.app-live .panel > .live--practice {
+  overflow: hidden;
+}
+
 .empty {
   padding: 28px 18px;
   text-align: center;
@@ -739,6 +760,45 @@ button {
   gap: 10px;
 }
 
+.live--practice {
+  gap: 6px;
+  overflow: hidden;
+}
+
+.live--practice .live-banner {
+  flex-shrink: 0;
+  padding: 8px 12px;
+}
+
+.live--practice .live-map-wrap {
+  flex: 0 0 auto;
+  position: relative;
+  top: auto;
+  box-shadow: none;
+}
+
+.live--practice .live-map {
+  height: 150px;
+}
+
+.live--practice .live-map-legend {
+  padding: 4px 8px;
+  font-size: 0.68rem;
+}
+
+.live--practice .live-here,
+.live--practice .live-etas,
+.live--practice .live-gps {
+  flex-shrink: 0;
+  padding: 8px 10px;
+}
+
+.live--practice .live-actions {
+  flex-shrink: 0;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
 .live-banner {
   display: flex;
   align-items: center;
@@ -763,6 +823,18 @@ button {
   font-size: 1.05rem;
 }
 
+.live--practice .live-status {
+  font-size: 0.95rem;
+}
+
+.live-status-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
 .live-pill {
   flex-shrink: 0;
   padding: 8px 10px;
@@ -784,10 +856,93 @@ button {
 }
 
 .live-setup,
+.live-ready,
 .live-here,
 .live-etas,
 .live-gps {
   padding: 12px 14px;
+}
+
+.live-here--compact .live-here-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.live-here--compact .k {
+  display: block;
+  color: var(--muted);
+  font-size: 0.7rem;
+  margin-bottom: 2px;
+}
+
+.live-here--compact strong {
+  display: block;
+  font-size: 0.88rem;
+  line-height: 1.3;
+}
+
+.live-km-chip {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--bg-chip);
+  border: 1px solid var(--line);
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--sand);
+}
+
+.live-here--compact input[type="range"] {
+  width: 100%;
+  margin: 0;
+}
+
+.live-etas-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.live-link--inline {
+  margin-top: 0;
+  font-size: 0.75rem;
+}
+
+.live--practice .live-eta-list li {
+  padding: 6px 0;
+}
+
+.live--practice .live-eta-name {
+  font-size: 0.82rem;
+}
+
+.live-gps--compact .live-gps-row {
+  gap: 8px;
+}
+
+.live-gps-compact-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.live-gps-compact-text .label {
+  display: inline;
+  margin-right: 6px;
+}
+
+.live-gps-compact-text .live-help {
+  margin: 0;
+  display: inline;
+  font-size: 0.78rem;
+}
+
+.live-gps--compact .live-toggle {
+  flex-shrink: 0;
 }
 
 .live-field {
@@ -992,6 +1147,10 @@ button {
   gap: 8px;
 }
 
+.live-actions.ready {
+  grid-template-columns: 1.6fr 1fr;
+}
+
 .live-actions button {
   margin-top: 0;
 }
@@ -1090,11 +1249,14 @@ button {
 }
 
 .live-map-wrap {
-  position: relative;
+  position: sticky;
+  top: 0;
+  z-index: 4;
   border-radius: var(--radius);
   overflow: hidden;
   border: 1px solid var(--line);
   background: #0a1210;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
 }
 
 .live-map {

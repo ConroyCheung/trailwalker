@@ -74,7 +74,7 @@ export default function App() {
   });
 
   return (
-    <div className="app">
+    <div className={`app${isLive ? " app-live" : ""}`}>
       <div className="sticky-head">
         <header className="topbar">
           <div className="brand">
@@ -100,7 +100,7 @@ export default function App() {
             <div className="label">賽前一次買齊</div>
             <p>數量已按十段計劃加總。沿途士多熱食唔使預先買，勾完代表記住帶錢同預留停站。</p>
           </div>
-        ) : (
+        ) : isLive ? null : (
           <section className="section-card">
             <div className="section-nav">
               <div className="section-title">

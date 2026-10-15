@@ -161,7 +161,18 @@ export function buildEtaSnapshot(opts: {
   };
 }
 
-/** 單軌練行（針山來回等）ETA */
+type TrainingWaypoint = {
+  place: string;
+  elevM: number;
+  /** 練習累計 kmAlong（去＋返） */
+  kmAlong: number;
+  leg: "out" | "back";
+};
+
+/**
+ * 練行 ETA 跟地形密碼：去程節點 → 山頂 → 回程倒序同一串節點。
+ * elevNodes 用 race 段內 kmAt；只取 ≤ turnRaceKm（例如針山山頂 2.0）。
+ */
 export function buildTrainingEtaSnapshot(opts: {
   name: string;
   totalKm: number;
@@ -169,13 +180,16 @@ export function buildTrainingEtaSnapshot(opts: {
   targetHours: number;
   elapsedMs: number;
   nowTs: number;
-  turnLabel?: string;
-  turnKm?: number;
+  /** 轉折對應 race elevCode kmAt（針山山頂 2.0） */
+  turnRaceKm: number;
+  /** 去程實際 track 長度（kmAlong 到山頂） */
+  outKmAlong: number;
+  elevNodes: ElevCodeNode[];
 }): LiveEtaSnapshot {
   const totalKm = Math.max(opts.totalKm, 0.01);
   const km = Math.min(totalKm, Math.max(0, opts.kmAlong));
   const remainKm = Math.max(0, totalKm - km);
-  const allocMs = opts.targetHours * 3600_000;
+  const allocMs = Math.max(opts.targetHours, 0.01) * 3600_000;
   const currentRemainBudgetMs = Math.max(0, allocMs - opts.elapsedMs);
 
   let paceMsPerKm = allocMs / totalKm;
@@ -188,32 +202,87 @@ export function buildTrainingEtaSnapshot(opts: {
   const progressRatio = km / totalKm;
   const aheadMs = opts.elapsedMs - allocMs * progressRatio;
 
-  const rows: SectionEta[] = [];
-  let budgetCursor = opts.nowTs + currentRemainBudgetMs;
-  let paceCursor = opts.nowTs + currentRemainPaceMs;
+  const turnRaceKm = Math.max(opts.turnRaceKm, 0.01);
+  const outKm = Math.max(opts.outKmAlong, 0.01);
+  const nodes = opts.elevNodes
+    .filter((n) => n.kmAt <= turnRaceKm + 0.05)
+    .slice()
+    .sort((a, b) => a.kmAt - b.kmAt);
 
-  if (opts.turnKm != null && opts.turnKm > 0 && km < opts.turnKm) {
-    const toTurnKm = opts.turnKm - km;
-    const turnBudget = opts.nowTs + Math.max(0, (allocMs * opts.turnKm) / totalKm - opts.elapsedMs);
-    const turnPace = opts.nowTs + toTurnKm * paceMsPerKm;
-    rows.push({
-      sectionId: 0,
-      from: "而家",
-      to: opts.turnLabel ?? "轉折",
-      allocatedMs: (allocMs * opts.turnKm) / totalKm,
-      budgetArriveAt: turnBudget,
-      paceArriveAt: turnPace,
+  const raceToOutAlong = (raceKm: number) => (Math.min(turnRaceKm, Math.max(0, raceKm)) / turnRaceKm) * outKm;
+
+  const waypoints: TrainingWaypoint[] = [];
+  for (const n of nodes) {
+    if (n.kmAt <= 1e-6) continue; // 起點唔當「抵達」
+    waypoints.push({
+      place: n.place,
+      elevM: n.elevM,
+      kmAlong: +raceToOutAlong(n.kmAt).toFixed(3),
+      leg: "out",
+    });
+  }
+  // 回程：山頂之後倒序（含返抵起點）
+  for (let i = nodes.length - 2; i >= 0; i--) {
+    const n = nodes[i];
+    const along = outKm + (outKm - raceToOutAlong(n.kmAt));
+    waypoints.push({
+      place: n.kmAt <= 1e-6 ? "返抵起點" : n.place,
+      elevM: n.elevM,
+      kmAlong: +Math.min(totalKm, along).toFixed(3),
+      leg: "back",
     });
   }
 
-  rows.push({
-    sectionId: 1,
-    from: km < (opts.turnKm ?? 0) ? opts.turnLabel ?? "轉折" : "而家",
-    to: "返抵起點",
-    allocatedMs: allocMs,
-    budgetArriveAt: budgetCursor,
-    paceArriveAt: paceCursor,
-  });
+  // 若 elev 無起點，仍保證有返抵
+  if (!waypoints.some((w) => w.leg === "back" && w.kmAlong >= totalKm - 0.05)) {
+    waypoints.push({
+      place: "返抵起點",
+      elevM: nodes[0]?.elevM ?? 0,
+      kmAlong: +totalKm.toFixed(3),
+      leg: "back",
+    });
+  }
+
+  const remaining = waypoints.filter((w) => w.kmAlong > km + 0.04);
+  const rows: SectionEta[] = [];
+  let budgetCursor = opts.nowTs;
+  let paceCursor = opts.nowTs;
+  let prevAlong = km;
+  const denom = Math.max(remainKm, 0.01);
+
+  for (let i = 0; i < remaining.length; i++) {
+    const wp = remaining[i];
+    const seg = Math.max(0, wp.kmAlong - prevAlong);
+    const frac = seg / denom;
+    const segBudget = currentRemainBudgetMs * frac;
+    const segPace = seg * paceMsPerKm;
+    budgetCursor += segBudget;
+    paceCursor += segPace;
+    const from =
+      i === 0
+        ? "而家"
+        : remaining[i - 1].place;
+    rows.push({
+      sectionId: i,
+      from,
+      to: wp.elevM > 0 ? `${wp.place} · ${wp.elevM}m` : wp.place,
+      allocatedMs: segBudget,
+      budgetArriveAt: budgetCursor,
+      paceArriveAt: paceCursor,
+    });
+    prevAlong = wp.kmAlong;
+  }
+
+  if (rows.length === 0) {
+    rows.push({
+      sectionId: 0,
+      from: "而家",
+      to: "返抵起點",
+      allocatedMs: currentRemainBudgetMs,
+      budgetArriveAt: opts.nowTs + currentRemainBudgetMs,
+      paceArriveAt: opts.nowTs + currentRemainPaceMs,
+    });
+  }
 
   return {
     elapsedMs: opts.elapsedMs,
