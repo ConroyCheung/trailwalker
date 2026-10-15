@@ -6,7 +6,7 @@ import { useNow } from "../hooks/useNow";
 import { formatSpeedKmh, gpsStepKm } from "../lib/live/geo";
 import {
   allocatedHours,
-  buildEtaSnapshot,
+  buildElevCodeEtaSnapshot,
   buildTrainingEtaSnapshot,
   DEFAULT_TARGET_HOURS,
   formatClock,
@@ -15,10 +15,13 @@ import {
 } from "../lib/live/pace";
 import {
   buildSummary,
+  clampPlannedStartTime,
   currentSectionKmCap,
   defaultLiveSession,
   elapsedInSectionMs,
+  formatTimeInput,
   loadLiveSession,
+  plannedStartTimestamp,
   saveLiveSession,
   type LiveSession,
 } from "../lib/live/session";
@@ -217,6 +220,9 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
     return { ...base, next: prev && prev.kmAt < terrainKm - 0.05 ? prev : nodes[0] ?? null };
   }, [section, terrainKm, training, session.kmInSection]);
   const etas = useMemo(() => {
+    const liveClock = session.status === "running" || session.status === "paused";
+    const etaNowTs = liveClock ? now : plannedStartTimestamp(session.plannedStartTime, now);
+    const etaElapsed = liveClock ? elapsed : 0;
     if (training) {
       const outEnd = training.track.filter((p) => p.leg === "out").at(-1);
       const raceSection = SECTIONS[training.raceSectionId - 1];
@@ -225,21 +231,21 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
         totalKm: training.totalKm,
         kmAlong: session.kmInSection,
         targetHours: session.trainingTargetHours,
-        elapsedMs: elapsed,
-        nowTs: now,
+        elapsedMs: etaElapsed,
+        nowTs: etaNowTs,
         turnRaceKm: training.turnRaceKm,
         outKmAlong: outEnd?.kmAlong ?? training.totalKm / 2,
         elevNodes: raceSection?.elevCode ?? [],
       });
     }
-    return buildEtaSnapshot({
+    return buildElevCodeEtaSnapshot({
       targetHours: session.targetHours,
       currentSectionId: session.currentSectionId,
       fromSectionId: session.startSectionId,
       toSectionId: session.endSectionId,
       kmInSection: session.kmInSection,
-      elapsedInCurrentMs: elapsed,
-      nowTs: now,
+      elapsedInCurrentMs: etaElapsed,
+      nowTs: etaNowTs,
     });
   }, [session, elapsed, now, training]);
 
@@ -280,6 +286,7 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
       ...s,
       status: "running",
       practiceStartedAt: t,
+      plannedStartTime: formatTimeInput(t),
       practicePausedMs: 0,
       sectionStartedAt: t,
       sectionPausedMs: 0,
@@ -422,15 +429,14 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
   const speedLabel = formatSpeedKmh(geo.fix?.speedMps);
 
   const practiceTitle = training
-    ? `${training.name} · ${training.totalKm.toFixed(1)} km · ${session.trainingTargetHours} h`
-    : `第 ${session.startSectionId}–${session.endSectionId} 段 · ${session.targetHours} h`;
+    ? `${training.name} · ${training.totalKm.toFixed(1)} km · ${session.trainingTargetHours} h · ${session.plannedStartTime} 起`
+    : `第 ${session.startSectionId}–${session.endSectionId} 段 · ${session.targetHours} h · ${session.plannedStartTime} 起`;
 
   const etaRowsVisible = useMemo(() => {
     const rows = etas.rows;
-    if (etaExpanded || rows.length <= 2) return rows;
-    // 一屏：下一個 + 最後（返抵／終）
-    if (rows.length === 1) return rows;
-    return [rows[0], rows[rows.length - 1]];
+    if (etaExpanded || rows.length <= 3) return rows;
+    // 一屏：而家／下一個／下下一個
+    return rows.slice(0, 3);
   }, [etas.rows, etaExpanded]);
 
   const gpsHint = !session.gpsOn
@@ -455,24 +461,71 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
 
   return (
     <div className={`live${inPractice ? " live--practice" : ""}`}>
-      <div className="live-banner">
-        <div>
-          <div className="live-kicker">Live · 練行</div>
-          <div className="live-status">
-            {inPractice ? (
-              <>
-                {statusLabel}
-                {session.status === "running" || session.status === "paused"
-                  ? ` · ${formatDuration(elapsed)}`
-                  : null}
-                <span className="live-status-sub">{practiceTitle}</span>
-              </>
-            ) : (
-              statusLabel
-            )}
+      <div className={`live-banner${inPractice ? " live-banner--practice" : ""}`}>
+        <div className="live-banner-top">
+          <div>
+            <div className="live-kicker">Live · 練行</div>
+            <div className="live-status">
+              {inPractice ? (
+                <>
+                  {statusLabel}
+                  {session.status === "running" || session.status === "paused"
+                    ? ` · ${formatDuration(elapsed)}`
+                    : null}
+                  <span className="live-status-sub">{practiceTitle}</span>
+                </>
+              ) : (
+                statusLabel
+              )}
+            </div>
           </div>
+          <span className={`live-pill ${session.status}`}>{paceDelta}</span>
         </div>
-        <span className={`live-pill ${session.status}`}>{paceDelta}</span>
+        {inPractice ? (
+          <div className="live-banner-progress">
+            <div className="live-banner-progress-meta">
+              <span className="live-terrain-inline">
+                {terrain.current.place} · {terrain.current.elevM}m
+                {terrain.next ? ` → ${terrain.next.place}` : ""}
+              </span>
+              <span className="live-km-chip">
+                {session.kmInSection.toFixed(1)}/{kmCap.toFixed(1)} km
+              </span>
+            </div>
+            <input
+              id="live-km"
+              type="range"
+              min={0}
+              max={kmCap}
+              step={0.1}
+              value={Math.min(session.kmInSection, kmCap)}
+              aria-label={training ? "來回進度" : "本段進度"}
+              onChange={(e) =>
+                patch((s) => ({
+                  ...s,
+                  kmInSection: Number(e.target.value),
+                  gpsFollow: false,
+                }))
+              }
+            />
+            {!session.gpsFollow && session.gpsOn ? (
+              <button
+                type="button"
+                className="live-link live-link--inline"
+                onClick={() =>
+                  patch((s) => ({
+                    ...s,
+                    gpsFollow: true,
+                    lastGpsLat: null,
+                    lastGpsLng: null,
+                  }))
+                }
+              >
+                恢復 GPS 跟蹤
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {session.status === "ended" && session.summary ? (
@@ -568,6 +621,36 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
               </select>
             </div>
             {training ? <p className="live-help">{training.blurb}</p> : null}
+          </div>
+
+          <div className="live-field">
+            <label htmlFor="live-start-time">練習開始時間</label>
+            <div className="live-target-row">
+              <input
+                id="live-start-time"
+                type="time"
+                value={session.plannedStartTime}
+                onChange={(e) =>
+                  patch((s) => ({
+                    ...s,
+                    plannedStartTime: clampPlannedStartTime(e.target.value, s.plannedStartTime),
+                  }))
+                }
+              />
+              <button
+                type="button"
+                className="live-link live-link--inline"
+                onClick={() =>
+                  patch((s) => ({
+                    ...s,
+                    plannedStartTime: formatTimeInput(),
+                  }))
+                }
+              >
+                而家
+              </button>
+            </div>
+            <p className="live-help">預計抵達會用呢個時間做起點（未撳開始前）</p>
           </div>
 
           {training ? (
@@ -706,57 +789,10 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
             progressKm={session.kmInSection}
           />
 
-          <div className="live-here card live-here--compact">
-            <div className="live-here-top">
-              <div>
-                <span className="k">而家</span>
-                <strong>
-                  {terrain.current.place} · {terrain.current.elevM}m
-                  {terrain.next ? ` → ${terrain.next.place}` : ""}
-                </strong>
-              </div>
-              <span className="live-km-chip">
-                {session.kmInSection.toFixed(1)}/{kmCap.toFixed(1)} km
-              </span>
-            </div>
-            <input
-              id="live-km"
-              type="range"
-              min={0}
-              max={kmCap}
-              step={0.1}
-              value={Math.min(session.kmInSection, kmCap)}
-              aria-label={training ? "來回進度" : "本段進度"}
-              onChange={(e) =>
-                patch((s) => ({
-                  ...s,
-                  kmInSection: Number(e.target.value),
-                  gpsFollow: false,
-                }))
-              }
-            />
-            {!session.gpsFollow && session.gpsOn ? (
-              <button
-                type="button"
-                className="live-link"
-                onClick={() =>
-                  patch((s) => ({
-                    ...s,
-                    gpsFollow: true,
-                    lastGpsLat: null,
-                    lastGpsLng: null,
-                  }))
-                }
-              >
-                恢復 GPS 跟蹤
-              </button>
-            ) : null}
-          </div>
-
-          <div className="live-etas card live-etas--compact">
+          <div className={`live-etas card live-etas--compact${etaExpanded ? " live-etas--expanded" : ""}`}>
             <div className="live-etas-head">
-              <div className="label">{training ? "預計抵達" : "預計到站"}</div>
-              {etas.rows.length > 2 ? (
+              <div className="label">預計抵達 · 地形密碼</div>
+              {etas.rows.length > 3 ? (
                 <button
                   type="button"
                   className="live-link live-link--inline"
@@ -773,7 +809,10 @@ export function LivePanel({ sectionId, onSectionChange }: Props) {
                   className={i === 0 ? "current" : ""}
                 >
                   <div className="live-eta-name">
-                    {training ? row.to : `第 ${row.sectionId} · ${row.to}`}
+                    {row.to}
+                    {row.distanceKm != null ? (
+                      <span className="live-eta-dist">{row.distanceKm.toFixed(1)} km</span>
+                    ) : null}
                   </div>
                   <div className="live-eta-times">
                     <span>{formatClock(row.budgetArriveAt)}</span>

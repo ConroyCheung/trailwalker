@@ -602,24 +602,28 @@ button {
   padding-bottom: 76px;
 }
 
+/* Live 設定頁：panel 本身 scroll（iOS 嵌套 flex scroll 常失效） */
 .app-live .panel {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  padding-bottom: 72px;
-}
-
-.app-live .panel > .live {
-  flex: 1;
-  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding-bottom: 88px;
 }
 
 .app-live .panel > .live:not(.live--practice) {
-  overflow: auto;
-  -webkit-overflow-scrolling: touch;
+  flex: 0 0 auto;
+}
+
+/* Live 練習一屏：鎖 panel scroll，由 live--practice 佈局 */
+.app-live .panel:has(.live--practice) {
+  overflow: hidden;
 }
 
 .app-live .panel > .live--practice {
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -768,6 +772,56 @@ button {
 .live--practice .live-banner {
   flex-shrink: 0;
   padding: 8px 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.live-banner-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.live-banner-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.live-banner-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.live-terrain-inline {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--mist);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-banner-progress input[type="range"] {
+  width: 100%;
+  margin: 0;
+}
+
+.live-eta-dist {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--sand);
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .live--practice .live-map-wrap {
@@ -786,11 +840,43 @@ button {
   font-size: 0.68rem;
 }
 
-.live--practice .live-here,
 .live--practice .live-etas,
 .live--practice .live-gps {
   flex-shrink: 0;
   padding: 8px 10px;
+}
+
+.live--practice .live-etas--compact {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 36vh;
+}
+
+.live--practice .live-etas--compact .live-etas-head {
+  flex-shrink: 0;
+}
+
+.live--practice .live-etas--compact .live-eta-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 28vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  margin: 4px 0 0;
+  padding-right: 2px;
+}
+
+/* 展開全部：佔剩餘高度，列表內 scroll，唔頂走開始掣 */
+.live--practice .live-etas--expanded {
+  flex: 1 1 auto;
+  max-height: none;
+}
+
+.live--practice .live-etas--expanded .live-eta-list {
+  max-height: none;
 }
 
 .live--practice .live-actions {
@@ -980,8 +1066,15 @@ button {
   font-weight: 700;
 }
 
-.live-target-row input {
+.live-target-row input[type="number"] {
   width: 96px;
+}
+
+.live-target-row input[type="time"] {
+  width: 9.5rem;
+  min-width: 9.5rem;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .live-range {

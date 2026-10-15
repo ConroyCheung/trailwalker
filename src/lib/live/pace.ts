@@ -57,6 +57,8 @@ export type SectionEta = {
   budgetArriveAt: number;
   /** 按而家 pace 縮放嘅預計到站 */
   paceArriveAt: number;
+  /** 由而家到呢個節點嘅距離（km） */
+  distanceKm?: number;
 };
 
 export type LiveEtaSnapshot = {
@@ -148,6 +150,130 @@ export function buildEtaSnapshot(opts: {
       allocatedMs,
       budgetArriveAt: budgetCursor,
       paceArriveAt: paceCursor,
+    });
+  }
+
+  return {
+    elapsedMs: elapsedInCurrentMs,
+    currentRemainBudgetMs,
+    currentRemainPaceMs,
+    paceFactor,
+    aheadMs,
+    rows,
+  };
+}
+
+/**
+ * 預計到站跟地形密碼細段（elevCode），唔係大段 CP。
+ * 由而家段內節點起，再接下一段範圍內嘅節點。
+ */
+export function buildElevCodeEtaSnapshot(opts: {
+  targetHours: number;
+  currentSectionId: number;
+  fromSectionId: number;
+  toSectionId: number;
+  kmInSection: number;
+  elapsedInCurrentMs: number;
+  nowTs: number;
+}): LiveEtaSnapshot {
+  const {
+    targetHours,
+    currentSectionId,
+    fromSectionId,
+    toSectionId,
+    kmInSection,
+    elapsedInCurrentMs,
+    nowTs,
+  } = opts;
+
+  const section = SECTIONS[currentSectionId - 1];
+  const allocMs = allocatedHours(targetHours, currentSectionId) * 3600_000;
+  const km = clampKm(section, kmInSection);
+  const remainKm = Math.max(0, section.km - km);
+  const currentRemainBudgetMs = Math.max(0, allocMs - elapsedInCurrentMs);
+
+  let paceMsPerKm = allocMs / Math.max(section.km, 0.01);
+  let paceFactor = 1;
+  if (km >= 0.3 && elapsedInCurrentMs > 60_000) {
+    paceMsPerKm = elapsedInCurrentMs / km;
+    paceFactor = paceMsPerKm / (allocMs / Math.max(section.km, 0.01));
+  }
+  const currentRemainPaceMs = remainKm * paceMsPerKm;
+  const progressRatio = section.km > 0 ? km / section.km : 0;
+  const aheadMs = elapsedInCurrentMs - allocMs * progressRatio;
+
+  const start = Math.max(1, Math.min(fromSectionId, toSectionId));
+  const end = Math.min(10, Math.max(fromSectionId, toSectionId));
+
+  type ElevWp = {
+    sectionId: number;
+    place: string;
+    elevM: number;
+    /** 該段內 kmAt */
+    kmAt: number;
+  };
+
+  const waypoints: ElevWp[] = [];
+  for (let id = Math.max(currentSectionId, start); id <= end; id++) {
+    const s = SECTIONS[id - 1];
+    if (!s) continue;
+    for (const n of s.elevCode) {
+      if (n.kmAt <= 1e-6) continue; // 起點唔當抵達
+      if (id === currentSectionId && n.kmAt <= km + 0.05) continue;
+      waypoints.push({
+        sectionId: id,
+        place: n.place,
+        elevM: n.elevM,
+        kmAt: n.kmAt,
+      });
+    }
+  }
+
+  const rows: SectionEta[] = [];
+  let budgetCursor = nowTs;
+  let paceCursor = nowTs;
+  let prevSectionId = currentSectionId;
+  let prevKm = km;
+  let distFromHere = 0;
+
+  for (let i = 0; i < waypoints.length; i++) {
+    const wp = waypoints[i];
+    if (wp.sectionId !== prevSectionId) {
+      prevSectionId = wp.sectionId;
+      prevKm = 0;
+    }
+    const seg = Math.max(0, wp.kmAt - prevKm);
+    distFromHere += seg;
+    const s = SECTIONS[wp.sectionId - 1];
+    const sectionAllocMs = allocatedHours(targetHours, wp.sectionId) * 3600_000;
+    const budgetMsPerKm = sectionAllocMs / Math.max(s.km, 0.01);
+    const paceHere =
+      wp.sectionId === currentSectionId ? paceMsPerKm : budgetMsPerKm * paceFactor;
+
+    budgetCursor += seg * budgetMsPerKm;
+    paceCursor += seg * paceHere;
+
+    rows.push({
+      sectionId: wp.sectionId,
+      from: "而家",
+      to: wp.elevM > 0 ? `${wp.place} · ${wp.elevM}m` : wp.place,
+      allocatedMs: seg * budgetMsPerKm,
+      budgetArriveAt: budgetCursor,
+      paceArriveAt: paceCursor,
+      distanceKm: +distFromHere.toFixed(2),
+    });
+    prevKm = wp.kmAt;
+  }
+
+  if (rows.length === 0) {
+    rows.push({
+      sectionId: currentSectionId,
+      from: "而家",
+      to: section.to,
+      allocatedMs: currentRemainBudgetMs,
+      budgetArriveAt: nowTs + currentRemainBudgetMs,
+      paceArriveAt: nowTs + currentRemainPaceMs,
+      distanceKm: +remainKm.toFixed(2),
     });
   }
 
@@ -269,6 +395,7 @@ export function buildTrainingEtaSnapshot(opts: {
       allocatedMs: segBudget,
       budgetArriveAt: budgetCursor,
       paceArriveAt: paceCursor,
+      distanceKm: +(wp.kmAlong - km).toFixed(2),
     });
     prevAlong = wp.kmAlong;
   }
@@ -281,6 +408,7 @@ export function buildTrainingEtaSnapshot(opts: {
       allocatedMs: currentRemainBudgetMs,
       budgetArriveAt: opts.nowTs + currentRemainBudgetMs,
       paceArriveAt: opts.nowTs + currentRemainPaceMs,
+      distanceKm: +remainKm.toFixed(2),
     });
   }
 

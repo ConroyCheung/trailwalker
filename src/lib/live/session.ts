@@ -52,7 +52,39 @@ export type LiveSession = {
   trainingId: string | null;
   /** 練行目標用時（小時） */
   trainingTargetHours: number;
+  /** 計劃練習開始時間（HH:MM，本地）—— ready 時 ETA 用呢個做基準 */
+  plannedStartTime: string;
 };
+
+/** 而家時間 → "HH:MM" */
+export function formatTimeInput(ts = Date.now()): string {
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/**
+ * 將 HH:MM 轉成今日（或明日）時間戳。
+ * 若已過超過 6 小時，當明日；否則仍用今日（准遲起步）。
+ */
+export function plannedStartTimestamp(clock: string, nowTs = Date.now()): number {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(clock.trim());
+  if (!m) return nowTs;
+  const h = Math.min(23, Math.max(0, Number(m[1])));
+  const min = Math.min(59, Math.max(0, Number(m[2])));
+  const d = new Date(nowTs);
+  d.setHours(h, min, 0, 0);
+  if (d.getTime() < nowTs - 6 * 3600_000) d.setDate(d.getDate() + 1);
+  return d.getTime();
+}
+
+export function clampPlannedStartTime(v: unknown, fallback = formatTimeInput()): string {
+  if (typeof v !== "string") return fallback;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(v.trim());
+  if (!m) return fallback;
+  const h = Math.min(23, Math.max(0, Number(m[1])));
+  const min = Math.min(59, Math.max(0, Number(m[2])));
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
 
 export function defaultLiveSession(sectionId = 1): LiveSession {
   const id = Math.min(10, Math.max(1, sectionId));
@@ -78,6 +110,7 @@ export function defaultLiveSession(sectionId = 1): LiveSession {
     summary: null,
     trainingId: null,
     trainingTargetHours: 1.5,
+    plannedStartTime: formatTimeInput(),
   };
 }
 
@@ -113,6 +146,7 @@ export function loadLiveSession(): LiveSession {
       trainingTargetHours: clampTrainingHours(
         parsed.trainingTargetHours ?? training?.defaultHours ?? base.trainingTargetHours,
       ),
+      plannedStartTime: clampPlannedStartTime(parsed.plannedStartTime, base.plannedStartTime),
     };
   } catch {
     return defaultLiveSession();
