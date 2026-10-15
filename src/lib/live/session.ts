@@ -1,9 +1,22 @@
 import { SECTIONS } from "../../data/sections";
 import { DEFAULT_TARGET_HOURS } from "./pace";
 
-const LIVE_KEY = "tw-live-v1";
+const LIVE_KEY = "tw-live-v2";
+const LIVE_KEY_LEGACY = "tw-live-v1";
 
 export type LiveStatus = "idle" | "running" | "paused" | "ended";
+
+export type LiveSummary = {
+  endedAt: number;
+  practiceMs: number;
+  fromSectionId: number;
+  toSectionId: number;
+  /** 最後所在段 */
+  lastSectionId: number;
+  kmInLastSection: number;
+  gpsKmTotal: number;
+  targetHours: number;
+};
 
 export type LiveSession = {
   targetHours: number;
@@ -18,8 +31,18 @@ export type LiveSession = {
   pausedAt: number | null;
   /** 整場練習開始 */
   practiceStartedAt: number | null;
+  /** 整場暫停累積 ms */
+  practicePausedMs: number;
   status: LiveStatus;
   gpsOn: boolean;
+  /** GPS 跟蹤進度（開住先累距推 slider） */
+  gpsFollow: boolean;
+  lastGpsLat: number | null;
+  lastGpsLng: number | null;
+  gpsKmTotal: number;
+  /** 已完成段嘅實際用時（換段時寫入） */
+  sectionElapsedLog: Record<string, number>;
+  summary: LiveSummary | null;
 };
 
 export function defaultLiveSession(sectionId = 1): LiveSession {
@@ -34,14 +57,21 @@ export function defaultLiveSession(sectionId = 1): LiveSession {
     sectionPausedMs: 0,
     pausedAt: null,
     practiceStartedAt: null,
+    practicePausedMs: 0,
     status: "idle",
     gpsOn: false,
+    gpsFollow: true,
+    lastGpsLat: null,
+    lastGpsLng: null,
+    gpsKmTotal: 0,
+    sectionElapsedLog: {},
+    summary: null,
   };
 }
 
 export function loadLiveSession(): LiveSession {
   try {
-    const raw = localStorage.getItem(LIVE_KEY);
+    const raw = localStorage.getItem(LIVE_KEY) ?? localStorage.getItem(LIVE_KEY_LEGACY);
     if (!raw) return defaultLiveSession();
     const parsed = JSON.parse(raw) as Partial<LiveSession>;
     const base = defaultLiveSession(parsed.currentSectionId ?? parsed.startSectionId ?? 1);
@@ -54,7 +84,14 @@ export function loadLiveSession(): LiveSession {
       currentSectionId: clampSection(parsed.currentSectionId ?? base.currentSectionId),
       kmInSection: Math.max(0, Number(parsed.kmInSection) || 0),
       sectionPausedMs: Math.max(0, Number(parsed.sectionPausedMs) || 0),
+      practicePausedMs: Math.max(0, Number(parsed.practicePausedMs) || 0),
+      gpsKmTotal: Math.max(0, Number(parsed.gpsKmTotal) || 0),
       gpsOn: Boolean(parsed.gpsOn),
+      gpsFollow: parsed.gpsFollow !== false,
+      lastGpsLat: numOrNull(parsed.lastGpsLat),
+      lastGpsLng: numOrNull(parsed.lastGpsLng),
+      sectionElapsedLog: parsed.sectionElapsedLog && typeof parsed.sectionElapsedLog === "object" ? parsed.sectionElapsedLog : {},
+      summary: parsed.summary ?? null,
       status: isStatus(parsed.status) ? parsed.status : "idle",
     };
   } catch {
@@ -64,6 +101,10 @@ export function loadLiveSession(): LiveSession {
 
 export function saveLiveSession(session: LiveSession) {
   localStorage.setItem(LIVE_KEY, JSON.stringify(session));
+}
+
+function numOrNull(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
 function clampSection(n: number): number {
@@ -86,6 +127,25 @@ export function elapsedInSectionMs(session: LiveSession, nowTs: number): number 
   return Math.max(0, end - session.sectionStartedAt - session.sectionPausedMs);
 }
 
+export function practiceElapsedMs(session: LiveSession, nowTs: number): number {
+  if (!session.practiceStartedAt) return 0;
+  const end = session.status === "ended" && session.summary ? session.summary.endedAt : session.pausedAt ?? nowTs;
+  return Math.max(0, end - session.practiceStartedAt - session.practicePausedMs);
+}
+
 export function currentSectionKmCap(session: LiveSession): number {
   return SECTIONS[session.currentSectionId - 1]?.km ?? 0;
+}
+
+export function buildSummary(session: LiveSession, nowTs: number): LiveSummary {
+  return {
+    endedAt: nowTs,
+    practiceMs: practiceElapsedMs({ ...session, pausedAt: session.pausedAt ?? nowTs }, nowTs),
+    fromSectionId: session.startSectionId,
+    toSectionId: session.endSectionId,
+    lastSectionId: session.currentSectionId,
+    kmInLastSection: session.kmInSection,
+    gpsKmTotal: session.gpsKmTotal,
+    targetHours: session.targetHours,
+  };
 }

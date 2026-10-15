@@ -995,3 +995,51 @@ button {
 .live-actions button {
   margin-top: 0;
 }
+
+.live-summary-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.live-summary-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+
+.live-summary-list li:last-child {
+  border-bottom: 0;
+}
+
+.live-link {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--moss-bright);
+  font-weight: 700;
+  font-size: 0.82rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.live-nearest {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.live-nearest .k {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  margin-bottom: 2px;
+}
+
+.live-nearest strong {
+  display: block;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
