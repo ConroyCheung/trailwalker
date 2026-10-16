@@ -53,6 +53,8 @@ export default function App() {
     return SECTIONS.filter((s) => s.id < sectionId).reduce((n, s) => n + s.km, 0);
   }, [sectionId]);
 
+  const progressClock = section.clock.split(/[–-]/)[0]?.trim() || START_CLOCK;
+
   const go = (id: number) => {
     const next = Math.min(10, Math.max(1, id));
     setSectionId(next);
@@ -84,7 +86,7 @@ export default function App() {
                 ? `購物清單 · 已買 ${buyDone} / ${buyItems.length}`
                 : isLive
                   ? "Live 練行 · 目標時間拆段 · 可中途起止"
-                  : `${START_CLOCK} 起步 · 36h · 已過 ${progressKm.toFixed(1)} / ${TOTAL_KM.toFixed(1)} km`}
+                  : `${START_CLOCK} 起步 · 36h · 已過 ${progressKm.toFixed(1)} / ${TOTAL_KM.toFixed(1)} km · 預計 ${progressClock}`}
             </span>
           </div>
           <div className="status">
